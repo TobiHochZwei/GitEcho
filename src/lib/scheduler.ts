@@ -1,0 +1,90 @@
+import cron from 'node-cron';
+import { getConfig } from './config.js';
+import { runBackup } from './backup/engine.js';
+import { notifyBackupSuccess, notifyCriticalError, checkAndNotifyPatExpiry } from './smtp.js';
+import type { BackupSummary } from './smtp.js';
+
+let scheduledTask: cron.ScheduledTask | null = null;
+let isRunning = false;
+
+export async function executeBackupCycle(): Promise<void> {
+  if (isRunning) {
+    console.log('[Scheduler] Backup already running, skipping cycle');
+    return;
+  }
+
+  isRunning = true;
+  console.log(`[Scheduler] Starting backup cycle at ${new Date().toISOString()}`);
+
+  try {
+    await checkAndNotifyPatExpiry();
+
+    const result = await runBackup();
+
+    console.log(`[Scheduler] Backup complete: ${result.successCount}/${result.totalRepos} repos succeeded`);
+
+    const summary: BackupSummary = {
+      startedAt: result.startedAt,
+      completedAt: result.completedAt,
+      totalRepos: result.totalRepos,
+      successCount: result.successCount,
+      failedCount: result.failedCount,
+      skippedCount: 0,
+      backupMode: result.backupMode,
+      failures: result.failures,
+    };
+
+    if (result.failedCount > 0 && result.successCount === 0) {
+      await notifyCriticalError(
+        `All ${result.failedCount} repositories failed to backup`,
+        JSON.stringify(result.failures, null, 2),
+      );
+    } else if (result.failedCount > 0) {
+      await notifyCriticalError(
+        `${result.failedCount} of ${result.totalRepos} repositories failed to backup`,
+        JSON.stringify(result.failures, null, 2),
+      );
+      await notifyBackupSuccess(summary);
+    } else {
+      await notifyBackupSuccess(summary);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[Scheduler] Backup cycle failed: ${message}`);
+    await notifyCriticalError(message, 'Backup cycle crashed');
+  } finally {
+    isRunning = false;
+  }
+}
+
+export function startScheduler(): void {
+  const config = getConfig();
+  const schedule = config.cronSchedule;
+
+  if (!cron.validate(schedule)) {
+    console.error(`[Scheduler] Invalid cron schedule: ${schedule}`);
+    return;
+  }
+
+  console.log(`[Scheduler] Starting with schedule: ${schedule}`);
+
+  scheduledTask = cron.schedule(schedule, () => {
+    executeBackupCycle().catch((err) => {
+      console.error('[Scheduler] Unhandled error in backup cycle:', err);
+    });
+  });
+
+  console.log('[Scheduler] Scheduler started successfully');
+}
+
+export function stopScheduler(): void {
+  if (scheduledTask) {
+    scheduledTask.stop();
+    scheduledTask = null;
+    console.log('[Scheduler] Scheduler stopped');
+  }
+}
+
+export function isBackupRunning(): boolean {
+  return isRunning;
+}

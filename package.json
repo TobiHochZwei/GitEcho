@@ -1,0 +1,31 @@
+{
+  "name": "gitecho",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "GitHub/Azure DevOps repository backup tool",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build && node build-worker.mjs",
+    "preview": "astro preview",
+    "start": "node dist/server/entry.mjs",
+    "worker": "node dist/worker/index.mjs",
+    "worker:dev": "npx tsx worker/index.ts"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.8",
+    "@astrojs/node": "^9.1.0",
+    "archiver": "^7.0.1",
+    "astro": "^5.7.0",
+    "better-sqlite3": "^11.8.0",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.10.0"
+  },
+  "devDependencies": {
+    "@types/archiver": "^6.0.3",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^6.4.17",
+    "typescript": "^5.9.3"
+  }
+}

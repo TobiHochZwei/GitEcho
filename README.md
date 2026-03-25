@@ -21,8 +21,18 @@ Container:
 - it should be a immutable container so that the data lives outsides via mountpoints
 - add an smpt functionality for notifiyin about critical issues or optional successfuly runs with a short summary - warning about PAT Experations per email
 
-Then there is a button "Backup now". When clicking the app creates a background task that goes through all links, downloads the full code (git Pull) from the main branch in a new directory in a temp folder, then zips this folder and deletes the folder, so only the zip remains. Then the zip file gets copied to the destination (see config.json)
+Option1:
+- Think about a bullet proof mechanismus for backing up the Repository. Data should not be lost. Having a repo and full history is okay. But make it in a way that history can not get lost. Meachnism for a Baclup is git pull (Download in the WebUi via ZIP)
 
-When all backups are created, the statistics file gets written and the site turns green.
+Option2:
+- every run creates a zip of the Repo - checksum will decide if we keep that zip. when checksum is same you can delete and keep the existing last version
 
-Make sure this web app/ node.js app runs on Mac as well as Windows.
+User can decide withch mode via Evnvironment variable option1 or option2
+
+WebApp features
+- Status of all backup repository and source like github / azuredevops
+- in case of strategy option1 show a readonly view of the lates state of the repo with possibility to naviagte in the repo (download files / folder / repo via zip)
+- in case of option2 show the repos and the list of zips
+
+ Impelementation Strategy:
+ - Make the porvides like azuredevops / github in a plugin style to have the possibility to add in future other git tools easily

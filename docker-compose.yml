@@ -1,0 +1,36 @@
+services:
+  gitecho:
+    build: .
+    container_name: gitecho
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Provider tokens (configure at least one)
+      GITHUB_PAT: ${GITHUB_PAT}
+      GITHUB_PAT_EXPIRES: ${GITHUB_PAT_EXPIRES}
+      AZUREDEVOPS_PAT: ${AZUREDEVOPS_PAT:-}
+      AZUREDEVOPS_PAT_EXPIRES: ${AZUREDEVOPS_PAT_EXPIRES:-}
+
+      # Backup settings
+      BACKUP_MODE: ${BACKUP_MODE:-option1}
+      CRON_SCHEDULE: ${CRON_SCHEDULE:-0 2 * * *}
+
+      # Email notifications (optional)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_TO: ${SMTP_TO:-}
+      NOTIFY_ON_SUCCESS: ${NOTIFY_ON_SUCCESS:-false}
+      PAT_EXPIRY_WARN_DAYS: ${PAT_EXPIRY_WARN_DAYS:-14}
+    volumes:
+      - gitecho-data:/data
+      - gitecho-config:/config
+      - gitecho-backups:/backups
+
+volumes:
+  gitecho-data:
+  gitecho-config:
+  gitecho-backups:

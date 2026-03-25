@@ -1,0 +1,75 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { loadConfig } from '../lib/config.js';
+import { initDatabase, getBackupStats, getBackupRuns } from '../lib/database.js';
+
+let stats: any, recentRuns: any[], config: any;
+try {
+  config = loadConfig();
+  initDatabase(config.dataDir);
+  stats = getBackupStats();
+  recentRuns = getBackupRuns(5);
+} catch (e) {
+  stats = { lastBackupAt: null, totalRepos: 0, lastRunStatus: null, hadRecentBackup: false };
+  recentRuns = [];
+  config = { backupMode: 'option1', cronSchedule: '0 2 * * *', github: null, azureDevOps: null };
+}
+
+const bgColor = stats.hadRecentBackup ? '#d4edda' : '#f8d7da';
+const statusText = stats.hadRecentBackup ? '✅ Backups up to date' : '⚠️ No backup in the last 24 hours';
+---
+<Layout title="GitEcho - Dashboard" bgColor={bgColor}>
+  <h1 style="margin-bottom: 1.5rem;">{statusText}</h1>
+  
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+    <div class="card">
+      <h3>Total Repositories</h3>
+      <p style="font-size: 2rem; font-weight: bold;">{stats.totalRepos}</p>
+    </div>
+    <div class="card">
+      <h3>Last Backup</h3>
+      <p style="font-size: 1.2rem;">{stats.lastBackupAt ? new Date(stats.lastBackupAt).toLocaleString() : 'Never'}</p>
+    </div>
+    <div class="card">
+      <h3>Backup Mode</h3>
+      <p style="font-size: 1.2rem;">{config.backupMode === 'option1' ? '📂 Git Pull (Option 1)' : '📦 ZIP Snapshots (Option 2)'}</p>
+    </div>
+    <div class="card">
+      <h3>Providers</h3>
+      <p>
+        {config.github ? '✅ GitHub' : '❌ GitHub'}<br/>
+        {config.azureDevOps ? '✅ Azure DevOps' : '❌ Azure DevOps'}
+      </p>
+    </div>
+  </div>
+
+  {recentRuns.length > 0 && (
+    <div class="card">
+      <h2 style="margin-bottom: 1rem;">Recent Backup Runs</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Status</th>
+            <th>Repos</th>
+            <th>Success</th>
+            <th>Failed</th>
+            <th>Mode</th>
+          </tr>
+        </thead>
+        <tbody>
+          {recentRuns.map(run => (
+            <tr>
+              <td>{new Date(run.started_at).toLocaleString()}</td>
+              <td><span class={`status-badge status-${run.status}`}>{run.status}</span></td>
+              <td>{run.repos_total}</td>
+              <td>{run.repos_success}</td>
+              <td>{run.repos_failed}</td>
+              <td>{run.backup_mode}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</Layout>

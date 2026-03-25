@@ -1,0 +1,126 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { loadConfig } from '../../lib/config.js';
+import { initDatabase } from '../../lib/database.js';
+import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs';
+import { join, basename, extname } from 'node:path';
+
+let config;
+try {
+  config = loadConfig();
+  initDatabase(config.dataDir);
+} catch (e) {
+  config = { backupsDir: '/backups', backupMode: 'option1' };
+}
+
+const pathSegments = Astro.params.path || '';
+const parts = pathSegments.split('/');
+
+// Expected: provider/owner/repo/...rest
+const provider = parts[0] || '';
+const owner = parts[1] || '';
+const repoName = parts[2] || '';
+const subPath = parts.slice(3).join('/');
+
+const repoRoot = join(config.backupsDir, provider, owner, repoName);
+const fullPath = join(repoRoot, subPath);
+
+let entries: Array<{ name: string; isDir: boolean; size: number; path: string }> = [];
+let fileContent: string | null = null;
+let isFile = false;
+let error: string | null = null;
+
+if (!existsSync(repoRoot)) {
+  error = 'Repository not found on disk';
+} else if (!existsSync(fullPath)) {
+  error = 'Path not found';
+} else {
+  const stat = statSync(fullPath);
+  if (stat.isDirectory()) {
+    const items = readdirSync(fullPath);
+    entries = items
+      .filter(name => !name.startsWith('.git') || name === '.gitignore')
+      .map(name => {
+        const itemPath = join(fullPath, name);
+        const itemStat = statSync(itemPath);
+        return {
+          name,
+          isDir: itemStat.isDirectory(),
+          size: itemStat.size,
+          path: `${pathSegments}/${name}`.replace(/^\//, '')
+        };
+      })
+      .sort((a, b) => {
+        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+  } else {
+    isFile = true;
+    const textExts = ['.md', '.txt', '.ts', '.js', '.json', '.yml', '.yaml', '.xml', '.html', '.css', '.sh', '.py', '.go', '.rs', '.java', '.c', '.h', '.cpp', '.toml', '.cfg', '.ini', '.env', '.gitignore', '.dockerfile', ''];
+    const ext = extname(fullPath).toLowerCase();
+    if (textExts.includes(ext) && stat.size < 1024 * 512) {
+      fileContent = readFileSync(fullPath, 'utf-8');
+    }
+  }
+}
+
+const breadcrumbs = pathSegments ? pathSegments.split('/').map((seg: string, i: number, arr: string[]) => ({
+  name: seg,
+  path: arr.slice(0, i + 1).join('/')
+})) : [];
+---
+<Layout title={`GitEcho - Browse ${owner}/${repoName}`}>
+  <div style="margin-bottom: 1rem;">
+    <a href="/repos" class="btn btn-sm" style="margin-right: 0.5rem;">← Back to Repos</a>
+    <a href={`/api/download?path=${encodeURIComponent(pathSegments)}`} class="btn btn-sm">📦 Download as ZIP</a>
+  </div>
+  
+  <nav style="margin-bottom: 1rem; font-size: 0.9rem;">
+    <a href={`/browse/${provider}/${owner}/${repoName}`}>{owner}/{repoName}</a>
+    {breadcrumbs.slice(3).map(bc => (
+      <span> / <a href={`/browse/${bc.path}`}>{bc.name}</a></span>
+    ))}
+  </nav>
+
+  {error ? (
+    <div class="card" style="color: #721c24;"><p>{error}</p></div>
+  ) : isFile ? (
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
+        <h3>{basename(fullPath)}</h3>
+        <a href={`/api/download?path=${encodeURIComponent(pathSegments)}&file=true`} class="btn btn-sm">⬇️ Download</a>
+      </div>
+      {fileContent !== null ? (
+        <pre style="background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.85rem; line-height: 1.5;"><code>{fileContent}</code></pre>
+      ) : (
+        <p>Binary file — <a href={`/api/download?path=${encodeURIComponent(pathSegments)}&file=true`}>download</a></p>
+      )}
+    </div>
+  ) : (
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Size</th></tr>
+        </thead>
+        <tbody>
+          {subPath && (
+            <tr>
+              <td><a href={`/browse/${breadcrumbs.slice(0, -1).map(b => b.name).join('/')}`}>📁 ..</a></td>
+              <td>—</td>
+            </tr>
+          )}
+          {entries.map(entry => (
+            <tr>
+              <td>
+                <a href={`/browse/${entry.path}`}>
+                  {entry.isDir ? '📁' : '📄'} {entry.name}
+                </a>
+              </td>
+              <td>{entry.isDir ? '—' : `${(entry.size / 1024).toFixed(1)} KB`}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</Layout>

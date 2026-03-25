@@ -1,0 +1,67 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { loadConfig } from '../../lib/config.js';
+import { initDatabase } from '../../lib/database.js';
+import { readdirSync, statSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+let config;
+try {
+  config = loadConfig();
+  initDatabase(config.dataDir);
+} catch (e) {
+  config = { backupsDir: '/backups' };
+}
+
+const pathSegments = Astro.params.path || '';
+const parts = pathSegments.split('/');
+const provider = parts[0] || '';
+const owner = parts[1] || '';
+const repoName = parts[2] || '';
+
+const repoDir = join(config.backupsDir, provider, owner, repoName);
+
+let zips: Array<{ name: string; size: number; date: Date }> = [];
+let error: string | null = null;
+
+if (!existsSync(repoDir)) {
+  error = 'No ZIP archives found for this repository';
+} else {
+  const items = readdirSync(repoDir);
+  zips = items
+    .filter(name => name.endsWith('.zip'))
+    .map(name => {
+      const stat = statSync(join(repoDir, name));
+      return { name, size: stat.size, date: stat.mtime };
+    })
+    .sort((a, b) => b.date.getTime() - a.date.getTime());
+}
+---
+<Layout title={`GitEcho - Archives ${owner}/${repoName}`}>
+  <a href="/repos" class="btn btn-sm" style="margin-bottom: 1rem; display: inline-block;">← Back to Repos</a>
+  <h1 style="margin-bottom: 1.5rem;">{owner}/{repoName} — ZIP Archives</h1>
+  
+  {error ? (
+    <div class="card"><p>{error}</p></div>
+  ) : zips.length === 0 ? (
+    <div class="card"><p>No ZIP archives found yet. Run a backup first.</p></div>
+  ) : (
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>Archive</th><th>Size</th><th>Date</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          {zips.map(zip => (
+            <tr>
+              <td>📦 {zip.name}</td>
+              <td>{(zip.size / 1024 / 1024).toFixed(2)} MB</td>
+              <td>{zip.date.toLocaleString()}</td>
+              <td><a href={`/api/download?path=${encodeURIComponent(`${pathSegments}/${zip.name}`)}&file=true`} class="btn btn-sm">⬇️ Download</a></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</Layout>

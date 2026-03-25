@@ -1,0 +1,62 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { loadConfig } from '../lib/config.js';
+import { initDatabase, getRepositories } from '../lib/database.js';
+
+let repos: any[], config: any;
+try {
+  config = loadConfig();
+  initDatabase(config.dataDir);
+  repos = getRepositories();
+} catch (e) {
+  repos = [];
+  config = { backupMode: 'option1' };
+}
+---
+<Layout title="GitEcho - Repositories">
+  <h1 style="margin-bottom: 1.5rem;">Repositories ({repos.length})</h1>
+  
+  {repos.length === 0 ? (
+    <div class="card">
+      <p>No repositories found. Configure your providers and run a backup.</p>
+    </div>
+  ) : (
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Repository</th>
+            <th>Provider</th>
+            <th>Last Sync</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {repos.map(repo => (
+            <tr>
+              <td>
+                <strong>{repo.owner}/{repo.name}</strong>
+                <br/><small style="color: #666;">{repo.url}</small>
+              </td>
+              <td>{repo.provider === 'github' ? '🐙 GitHub' : '🔷 Azure DevOps'}</td>
+              <td>{repo.last_sync_at ? new Date(repo.last_sync_at).toLocaleString() : 'Never'}</td>
+              <td>
+                <span class={`status-badge status-${repo.last_sync_status || 'pending'}`}>
+                  {repo.last_sync_status || 'pending'}
+                </span>
+              </td>
+              <td>
+                {config.backupMode === 'option1' ? (
+                  <a href={`/browse/${repo.provider}/${repo.owner}/${repo.name}`} class="btn btn-sm">Browse</a>
+                ) : (
+                  <a href={`/zips/${repo.provider}/${repo.owner}/${repo.name}`} class="btn btn-sm">ZIP Archives</a>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</Layout>

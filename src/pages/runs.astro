@@ -1,0 +1,34 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { loadConfig } from '../lib/config.js';
+import { initDatabase, getBackupRuns } from '../lib/database.js';
+
+let runs: any[], config: any;
+try {
+  config = loadConfig();
+  initDatabase(config.dataDir);
+  runs = getBackupRuns(20);
+} catch (e) {
+  runs = [];
+}
+---
+<Layout title="GitEcho - Backup Runs">
+  <h1 style="margin-bottom: 1.5rem;">Backup Runs</h1>
+  
+  {runs.length === 0 ? (
+    <div class="card"><p>No backup runs yet.</p></div>
+  ) : (
+    runs.map(run => (
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <h3>Run #{run.id}</h3>
+          <span class={`status-badge status-${run.status}`}>{run.status}</span>
+        </div>
+        <p><strong>Started:</strong> {new Date(run.started_at).toLocaleString()}</p>
+        {run.completed_at && <p><strong>Completed:</strong> {new Date(run.completed_at).toLocaleString()}</p>}
+        <p><strong>Mode:</strong> {run.backup_mode} | <strong>Total:</strong> {run.repos_total} | <strong>Success:</strong> {run.repos_success} | <strong>Failed:</strong> {run.repos_failed}</p>
+        {run.error_summary && <p style="color: #721c24; margin-top: 0.5rem;"><strong>Errors:</strong> {run.error_summary}</p>}
+      </div>
+    ))
+  )}
+</Layout>

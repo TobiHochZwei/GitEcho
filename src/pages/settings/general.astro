@@ -1,0 +1,99 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getConfig } from '../../lib/config.js';
+
+const cfg = getConfig();
+---
+<Layout title="GitEcho - Settings · General">
+  <a href="/settings" class="btn btn-sm" style="margin-bottom: 1rem; display: inline-block;">← Settings</a>
+  <h1 style="margin-bottom: 1rem;">General</h1>
+
+  <div class="card" style="margin-bottom: 1rem;">
+    <form id="general-form" style="display:grid; gap:0.75rem;">
+      <label>
+        Backup mode
+        <select name="backupMode" style="padding:0.5rem;">
+          <option value="option1" selected={cfg.backupMode === 'option1'}>option1 — git pull (history protected)</option>
+          <option value="option2" selected={cfg.backupMode === 'option2'}>option2 — ZIP snapshots</option>
+        </select>
+      </label>
+      <label>
+        Cron schedule (5 or 6 fields). Restart the worker container for this to take effect.
+        <input name="cronSchedule" value={cfg.cronSchedule} style="padding:0.5rem; width:100%;" />
+      </label>
+      <button type="submit" class="btn" style="justify-self:start;">Save</button>
+      <p id="save-msg" style="min-height:1.2em;"></p>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Trigger backup now</h3>
+    <p>Runs an ad-hoc backup using the current configuration. Only one backup may run at a time across the worker and web processes.</p>
+    <div style="display:flex; gap:0.5rem; align-items:center;">
+      <button type="button" id="trigger-btn" class="btn">Run backup</button>
+      <span id="trigger-msg" style="min-height:1.2em;"></span>
+    </div>
+    <p id="status" style="margin-top:0.5rem; color:#555;"></p>
+  </div>
+</Layout>
+
+<script is:inline>
+  const form = document.getElementById('general-form');
+  const saveMsg = document.getElementById('save-msg');
+  const triggerBtn = document.getElementById('trigger-btn');
+  const triggerMsg = document.getElementById('trigger-msg');
+  const statusEl = document.getElementById('status');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    saveMsg.style.color = '#666';
+    saveMsg.textContent = 'Saving...';
+    const fd = new FormData(form);
+    const res = await fetch('/api/settings/general', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        backupMode: fd.get('backupMode'),
+        cronSchedule: fd.get('cronSchedule'),
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok) {
+      saveMsg.style.color = '#1a7f37';
+      saveMsg.textContent = 'Saved.' + (j.note ? ' ' + j.note : '');
+    } else {
+      saveMsg.style.color = '#cf222e';
+      saveMsg.textContent = j.error || 'Failed';
+    }
+  });
+
+  async function refreshStatus() {
+    const res = await fetch('/api/backup/trigger');
+    const j = await res.json().catch(() => ({}));
+    if (j.running) {
+      statusEl.textContent = 'Backup currently running (pid ' + j.lock.pid + ', started ' + j.lock.startedAt + ').';
+      triggerBtn.disabled = true;
+    } else {
+      statusEl.textContent = 'No backup running.';
+      triggerBtn.disabled = false;
+    }
+  }
+
+  triggerBtn.addEventListener('click', async () => {
+    triggerMsg.style.color = '#666';
+    triggerMsg.textContent = 'Starting...';
+    const res = await fetch('/api/backup/trigger', { method: 'POST' });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok) {
+      triggerMsg.style.color = '#1a7f37';
+      triggerMsg.textContent = '✓ Backup started';
+    } else {
+      triggerMsg.style.color = '#cf222e';
+      triggerMsg.textContent = '✗ ' + (j.error || 'Failed');
+    }
+    refreshStatus();
+  });
+
+  refreshStatus();
+  setInterval(refreshStatus, 4000);
+</script>

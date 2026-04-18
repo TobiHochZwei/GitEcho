@@ -22,7 +22,10 @@ try {
       <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
           <h3>Run #{run.id}</h3>
-          <span class={`status-badge status-${run.status}`}>{run.status}</span>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <span class={`status-badge status-${run.status}`}>{run.status}</span>
+            <a class="btn btn-sm" href={`/runs/${run.id}`}>View details</a>
+          </div>
         </div>
         <p><strong>Started:</strong> {new Date(run.started_at).toLocaleString()}</p>
         {run.completed_at && <p><strong>Completed:</strong> {new Date(run.completed_at).toLocaleString()}</p>}

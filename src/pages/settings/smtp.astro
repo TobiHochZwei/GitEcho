@@ -1,0 +1,115 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { loadSettings } from '../../lib/settings.js';
+import { getConfig } from '../../lib/config.js';
+
+const settings = loadSettings();
+const cfg = getConfig();
+const passStored = Boolean(cfg.smtp?.pass);
+const s = {
+  host: settings.smtp?.host ?? cfg.smtp?.host ?? '',
+  port: settings.smtp?.port ?? cfg.smtp?.port ?? 587,
+  user: settings.smtp?.user ?? cfg.smtp?.user ?? '',
+  from: settings.smtp?.from ?? cfg.smtp?.from ?? '',
+  to: settings.smtp?.to ?? cfg.smtp?.to ?? '',
+  notifyOnSuccess: settings.notifyOnSuccess ?? cfg.notifyOnSuccess,
+  patExpiryWarnDays: settings.patExpiryWarnDays ?? cfg.patExpiryWarnDays,
+};
+---
+<Layout title="GitEcho - Settings · SMTP">
+  <a href="/settings" class="btn btn-sm" style="margin-bottom: 1rem; display: inline-block;">← Settings</a>
+  <h1 style="margin-bottom: 1rem;">SMTP / Notifications</h1>
+
+  <div class="card">
+    <form id="smtp-form" style="display:grid; gap:0.75rem;">
+      <label>Host <input name="host" value={s.host} placeholder="smtp.example.com" style="width:100%; padding:0.5rem;" /></label>
+      <label>Port <input name="port" type="number" min="1" value={s.port} style="padding:0.5rem; width:8rem;" /></label>
+      <label>User <input name="user" value={s.user} placeholder="alerts@example.com" style="width:100%; padding:0.5rem;" /></label>
+      <label>Password <input name="pass" type="password" autocomplete="off" placeholder={passStored ? '(stored — leave blank to keep)' : ''} style="width:100%; padding:0.5rem;" /></label>
+      <label>From <input name="from" value={s.from} placeholder="gitecho@example.com" style="width:100%; padding:0.5rem;" /></label>
+      <label>To <input name="to" value={s.to} placeholder="admin@example.com" style="width:100%; padding:0.5rem;" /></label>
+      <label style="display:flex; align-items:center; gap:0.5rem;">
+        <input type="checkbox" name="notifyOnSuccess" checked={s.notifyOnSuccess} />
+        Send email on successful backup runs
+      </label>
+      <label>PAT-expiry warn days <input name="patExpiryWarnDays" type="number" min="0" value={s.patExpiryWarnDays} style="padding:0.5rem; width:8rem;" /></label>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <button type="submit" class="btn">Save</button>
+        <button type="button" id="test-btn" class="btn btn-sm">Send test email</button>
+        {passStored && <button type="button" id="clear-pass" class="btn btn-sm">Remove stored password</button>}
+      </div>
+      <p id="msg" style="min-height:1.2em;"></p>
+    </form>
+  </div>
+</Layout>
+
+<script is:inline>
+  const form = document.getElementById('smtp-form');
+  const msg = document.getElementById('msg');
+
+  function buildBody(extra = {}) {
+    const fd = new FormData(form);
+    const body = { ...extra };
+    body.host = fd.get('host') || '';
+    body.port = Number(fd.get('port')) || 587;
+    body.user = fd.get('user') || '';
+    const pass = fd.get('pass');
+    if (pass) body.pass = pass;
+    body.from = fd.get('from') || '';
+    body.to = fd.get('to') || '';
+    body.notifyOnSuccess = form.querySelector('[name="notifyOnSuccess"]').checked;
+    body.patExpiryWarnDays = Number(fd.get('patExpiryWarnDays')) || 0;
+    return body;
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    msg.style.color = '#666';
+    msg.textContent = 'Saving...';
+    const res = await fetch('/api/settings/smtp', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildBody()),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok) {
+      msg.style.color = '#1a7f37';
+      msg.textContent = 'Saved.';
+      setTimeout(() => location.reload(), 600);
+    } else {
+      msg.style.color = '#cf222e';
+      msg.textContent = j.error || 'Failed';
+    }
+  });
+
+  document.getElementById('test-btn').addEventListener('click', async () => {
+    msg.style.color = '#666';
+    msg.textContent = 'Sending test...';
+    const res = await fetch('/api/test/smtp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildBody()),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok) {
+      msg.style.color = '#1a7f37';
+      msg.textContent = '✓ ' + (j.message || 'Sent');
+    } else {
+      msg.style.color = '#cf222e';
+      msg.textContent = '✗ ' + (j.error || 'Failed');
+    }
+  });
+
+  const clearBtn = document.getElementById('clear-pass');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', async () => {
+      if (!confirm('Remove the stored SMTP password?')) return;
+      const res = await fetch('/api/settings/smtp', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clearPass: true }),
+      });
+      if (res.ok) location.reload();
+    });
+  }
+</script>

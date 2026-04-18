@@ -1,0 +1,151 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { loadSettings } from '../../lib/settings.js';
+import { getConfig } from '../../lib/config.js';
+
+const settings = loadSettings();
+const cfg = getConfig();
+const ghStored = Boolean(cfg.github?.pat);
+const adoStored = Boolean(cfg.azureDevOps?.pat);
+const ghExpires = settings.github?.patExpires ?? cfg.github?.patExpires?.toISOString().slice(0, 10) ?? '';
+const adoExpires = settings.azureDevOps?.patExpires ?? cfg.azureDevOps?.patExpires?.toISOString().slice(0, 10) ?? '';
+const adoOrg = settings.azureDevOps?.org ?? cfg.azureDevOps?.org ?? '';
+const ghAutoDiscover = settings.github?.autoDiscover ?? true;
+---
+<Layout title="GitEcho - Settings · Providers">
+  <a href="/settings" class="btn btn-sm" style="margin-bottom: 1rem; display: inline-block;">← Settings</a>
+  <h1 style="margin-bottom: 1rem;">Providers</h1>
+
+  <div class="card" style="margin-bottom:1rem;">
+    <h2>🐙 GitHub</h2>
+    <form class="provider-form" data-provider="github" style="display:grid; gap:0.75rem; margin-top:0.75rem;">
+      <label>
+        Personal Access Token
+        <input type="password" name="pat" autocomplete="off" placeholder={ghStored ? '(stored — leave blank to keep)' : 'ghp_...'} style="width:100%; padding:0.5rem;" />
+      </label>
+      <label>
+        Expiration date (ISO 8601)
+        <input type="date" name="patExpires" value={ghExpires} style="padding:0.5rem;" />
+      </label>
+      <label style="display:flex; align-items:center; gap:0.5rem;">
+        <input type="checkbox" name="autoDiscover" checked={ghAutoDiscover} />
+        Auto-discover all repos visible to this PAT (in addition to repos.txt)
+      </label>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <button type="submit" class="btn">Save</button>
+        <button type="button" class="btn btn-sm" data-action="test">Test connection</button>
+        {ghStored && <button type="button" class="btn btn-sm" data-action="clear">Remove stored PAT</button>}
+      </div>
+      <p class="msg" style="min-height:1.2em;"></p>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>🔷 Azure DevOps</h2>
+    <form class="provider-form" data-provider="azureDevOps" style="display:grid; gap:0.75rem; margin-top:0.75rem;">
+      <label>
+        Personal Access Token
+        <input type="password" name="pat" autocomplete="off" placeholder={adoStored ? '(stored — leave blank to keep)' : 'pat...'} style="width:100%; padding:0.5rem;" />
+      </label>
+      <label>
+        Expiration date
+        <input type="date" name="patExpires" value={adoExpires} style="padding:0.5rem;" />
+      </label>
+      <label>
+        Organization (bare name or full URL)
+        <input type="text" name="org" value={adoOrg} placeholder="myorg or https://dev.azure.com/myorg" style="width:100%; padding:0.5rem;" />
+      </label>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <button type="submit" class="btn">Save</button>
+        <button type="button" class="btn btn-sm" data-action="test">Test connection</button>
+        {adoStored && <button type="button" class="btn btn-sm" data-action="clear">Remove stored PAT</button>}
+      </div>
+      <p class="msg" style="min-height:1.2em;"></p>
+    </form>
+  </div>
+</Layout>
+
+<script is:inline>
+  document.querySelectorAll('.provider-form').forEach((form) => {
+    const provider = form.getAttribute('data-provider');
+    const msg = form.querySelector('.msg');
+
+    function payload(extra = {}) {
+      const fd = new FormData(form);
+      const out = { ...extra };
+      const pat = fd.get('pat');
+      if (pat) out.pat = pat;
+      const exp = fd.get('patExpires');
+      if (exp !== null) out.patExpires = exp;
+      if (provider === 'github') {
+        out.autoDiscover = form.querySelector('input[name="autoDiscover"]').checked;
+      }
+      if (provider === 'azureDevOps') {
+        const org = fd.get('org');
+        if (org !== null) out.org = org;
+      }
+      return out;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      msg.style.color = '#666';
+      msg.textContent = 'Saving...';
+      const body = { [provider]: payload() };
+      const res = await fetch('/api/settings/providers', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) {
+        msg.style.color = '#1a7f37';
+        msg.textContent = 'Saved.';
+        setTimeout(() => location.reload(), 600);
+      } else {
+        msg.style.color = '#cf222e';
+        msg.textContent = j.error || 'Failed to save';
+      }
+    });
+
+    form.querySelector('[data-action="test"]').addEventListener('click', async () => {
+      msg.style.color = '#666';
+      msg.textContent = 'Testing...';
+      const fd = new FormData(form);
+      const body = {};
+      const pat = fd.get('pat');
+      if (pat) body.pat = pat;
+      if (provider === 'azureDevOps') {
+        const org = fd.get('org');
+        if (org) body.org = org;
+      }
+      const endpoint = provider === 'github' ? '/api/test/github' : '/api/test/azuredevops';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) {
+        msg.style.color = '#1a7f37';
+        msg.textContent = '✓ ' + (j.message || 'OK');
+      } else {
+        msg.style.color = '#cf222e';
+        msg.textContent = '✗ ' + (j.error || 'Failed');
+      }
+    });
+
+    const clearBtn = form.querySelector('[data-action="clear"]');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', async () => {
+        if (!confirm('Remove the stored PAT for ' + provider + '?')) return;
+        const res = await fetch('/api/settings/providers', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [provider]: { clear: true } }),
+        });
+        if (res.ok) location.reload();
+      });
+    }
+  });
+</script>

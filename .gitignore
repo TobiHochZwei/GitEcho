@@ -140,3 +140,6 @@ vite.config.ts.timestamp-*
 
 # Astro
 .astro/
+
+# Local development state
+.dev/

@@ -99,12 +99,40 @@ WebApp features
 | `NOTIFY_ON_SUCCESS` | No | Send email on successful backup runs | `false` |
 | `PAT_EXPIRY_WARN_DAYS` | No | Days before PAT expiry to start warning | `14` |
 | `DATA_DIR` | No | Override the data mount path (SQLite database, sync metadata) | `/data` |
-| `CONFIG_DIR` | No | Override the config mount path (`repos.txt`) | `/config` |
+| `CONFIG_DIR` | No | Override the config mount path (`repos.txt`, `settings.json`, `secrets.json`) | `/config` |
 | `BACKUPS_DIR` | No | Override the backups mount path (cloned repos / ZIPs) | `/backups` |
+| `UI_USER` | No (recommended) | Username for the Web UI HTTP Basic Auth. Auth is enforced only when both `UI_USER` and `UI_PASS` are set. | `admin` |
+| `UI_PASS` | No (recommended) | Password for the Web UI HTTP Basic Auth | `change-me` |
+| `MASTER_KEY` | Required to use the Settings UI for secrets | 32-byte key (hex or base64) used to encrypt PATs and SMTP password at rest. Generate with `openssl rand -hex 32`. **If you lose it, all stored secrets are unrecoverable.** | `7f...` (64 hex chars) |
 
-\* At least one provider PAT and its corresponding expiration date are required.
+\* At least one provider PAT and its corresponding expiration date are required — either via env vars or via the Settings UI.
 
 **Defaults:** `BACKUP_MODE=option1`, `CRON_SCHEDULE=0 2 * * *` (daily at 2 AM), `PAT_EXPIRY_WARN_DAYS=14`, `NOTIFY_ON_SUCCESS=false`.
+
+## Settings UI
+
+GitEcho ships with a web UI for managing configuration without restarting the container. Visit `/settings` after logging in to:
+
+- **Repositories** — add or remove URLs in `/config/repos.txt` from the browser.
+- **Providers** — set or rotate GitHub / Azure DevOps PATs, record their expiration dates, toggle GitHub auto-discovery, and run a one-click *Test connection* (uses `gh auth status` / `az devops project list`).
+- **SMTP** — configure host/port/user/password/from/to, toggle "notify on success", set `pat_expiry_warn_days`, and send a test email.
+- **General** — change backup mode, edit the cron schedule, and trigger an ad-hoc backup with **Run backup**. The button is disabled while a run is already in progress (the worker process and the web process share a filesystem lock at `/data/.backup.lock`).
+- **Per-run details** — `/runs/<id>` lists every repository that was processed in a given run with status, error message, ZIP path, and SHA-256.
+
+UI changes are persisted to:
+
+- `/config/repos.txt` — repository list (preserves your existing comments).
+- `/config/settings.json` — non-secret settings (PAT expirations, SMTP host/port, cron, mode, etc.).
+- `/config/secrets.json` — AES-256-GCM-encrypted PATs and SMTP password.
+
+Configuration precedence is **builtin defaults < environment variables < `settings.json` < `secrets.json`**, re-read by both processes on every backup cycle. Note: changes to the **cron schedule** only take effect after the worker container restarts.
+
+### Security notes
+
+- HTTP Basic Auth is plaintext on the wire. **Always put GitEcho behind a TLS-terminating reverse proxy** (Caddy, nginx, Traefik, …) when exposing it beyond `localhost`.
+- If `UI_USER`/`UI_PASS` are unset, the Settings UI is reachable without authentication and a warning is logged at startup.
+- Losing `MASTER_KEY` means losing every PAT and SMTP password stored via the UI — back it up alongside your other secrets.
+- The container is no longer strictly immutable when you use the Settings UI: state lives in `/config` and `/data`, both of which must be persistent volumes.
 
 ## Docker Setup
 

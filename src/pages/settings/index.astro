@@ -1,0 +1,43 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { isMasterKeyConfigured } from '../../lib/secrets.js';
+
+const masterKeyOk = isMasterKeyConfigured();
+const uiAuthOn = Boolean(process.env.UI_USER && process.env.UI_PASS);
+---
+<Layout title="GitEcho - Settings">
+  <h1 style="margin-bottom: 1rem;">Settings</h1>
+
+  {!masterKeyOk && (
+    <div class="card" style="background:#fff3cd; border:1px solid #ffeeba; margin-bottom:1rem;">
+      <strong>⚠ MASTER_KEY is not set.</strong>
+      <p style="margin: 0.5rem 0 0;">PAT and SMTP-password fields cannot be saved through the UI until you set the <code>MASTER_KEY</code> environment variable. Generate one with <code>openssl rand -hex 32</code>.</p>
+    </div>
+  )}
+
+  {!uiAuthOn && (
+    <div class="card" style="background:#f8d7da; border:1px solid #f5c6cb; margin-bottom:1rem;">
+      <strong>⚠ The web UI is not authenticated.</strong>
+      <p style="margin: 0.5rem 0 0;">Set <code>UI_USER</code> and <code>UI_PASS</code> environment variables to require HTTP Basic auth on every request.</p>
+    </div>
+  )}
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;">
+    <a href="/settings/repos" class="card" style="text-decoration:none; color:inherit;">
+      <h3>📂 Repositories</h3>
+      <p>Add or remove URLs in <code>repos.txt</code>.</p>
+    </a>
+    <a href="/settings/providers" class="card" style="text-decoration:none; color:inherit;">
+      <h3>🔑 Providers</h3>
+      <p>GitHub & Azure DevOps PAT tokens, expirations, auto-discovery, test connections.</p>
+    </a>
+    <a href="/settings/smtp" class="card" style="text-decoration:none; color:inherit;">
+      <h3>✉️ SMTP</h3>
+      <p>Email notification setup with a test-send button.</p>
+    </a>
+    <a href="/settings/general" class="card" style="text-decoration:none; color:inherit;">
+      <h3>⚙️ General</h3>
+      <p>Backup mode, cron schedule, manual trigger.</p>
+    </a>
+  </div>
+</Layout>

@@ -12,10 +12,29 @@ import { dirname, join } from 'node:path';
 import { decryptSecret, encryptSecret, isEncryptedSecret } from './secrets.js';
 import type { EncryptedSecret } from './secrets.js';
 
+export interface DiscoveryFilterSettings {
+  /** Case-insensitive list of owners/orgs to allow. Empty/undefined = no allow filter. */
+  ownerAllowList?: string[];
+  /** Case-insensitive list of owners/orgs to drop. Empty/undefined = no deny filter. */
+  ownerDenyList?: string[];
+  /** Filter by visibility. Defaults to 'all'. */
+  visibility?: 'all' | 'public' | 'private';
+}
+
 export interface ProviderSettings {
   patExpires?: string; // ISO date
-  autoDiscover?: boolean; // GitHub only
+  /**
+   * Discover all repositories visible to the configured PAT. Honoured for
+   * both GitHub and Azure DevOps. Defaults to true.
+   */
+  autoDiscover?: boolean;
   org?: string; // Azure DevOps only
+  /** Append newly-discovered repository URLs to /config/repos.txt. Defaults to false. */
+  autoAppendToReposTxt?: boolean;
+  /** Send an SMTP notification when previously-unseen repos are discovered. Defaults to true. */
+  notifyOnNewRepo?: boolean;
+  /** Filters applied to the discovery result before persistence. */
+  filters?: DiscoveryFilterSettings;
 }
 
 export interface SmtpSettings {
@@ -29,7 +48,7 @@ export interface SmtpSettings {
 export interface PersistedSettings {
   github?: ProviderSettings;
   azureDevOps?: ProviderSettings;
-  backupMode?: 'option1' | 'option2';
+  backupMode?: 'option1' | 'option2' | 'option3';
   cronSchedule?: string;
   smtp?: SmtpSettings;
   notifyOnSuccess?: boolean;

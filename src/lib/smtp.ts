@@ -98,6 +98,36 @@ export async function sendNotification(subject: string, htmlBody: string): Promi
 
 // ── Public notification functions ────────────────────────────────────
 
+export async function notifyNewRepositories(
+  providerDisplayName: string,
+  repos: Array<{ url: string; owner: string; name: string }>,
+): Promise<void> {
+  if (repos.length === 0) return;
+
+  const rows = repos
+    .map((r) => {
+      const label = `${escapeHtml(r.owner)}/${escapeHtml(r.name)}`;
+      const href = escapeHtml(r.url);
+      return `<li style="margin-bottom:6px"><a href="${href}" style="color:#0969da;text-decoration:none">${label}</a></li>`;
+    })
+    .join('');
+
+  const body = `
+    <p style="margin:0 0 12px;font-size:14px;color:#24292f">
+      ${repos.length} new repository${repos.length === 1 ? '' : 'ies'} discovered for
+      <strong>${escapeHtml(providerDisplayName)}</strong> and added to GitEcho.
+    </p>
+    <ul style="padding-left:20px;margin:12px 0;font-size:14px;color:#24292f">${rows}</ul>
+    <p style="margin:16px 0 0;font-size:13px;color:#656d76">
+      They will be included in the next backup cycle.
+    </p>`;
+
+  await sendNotification(
+    `🆕 GitEcho: ${repos.length} new ${providerDisplayName} repo${repos.length === 1 ? '' : 's'} discovered`,
+    layout('New repositories discovered', body),
+  );
+}
+
 export async function notifyCriticalError(error: string, context?: string): Promise<void> {
   const contextBlock = context
     ? `<p style="margin:12px 0 0;font-size:14px;color:#656d76">${escapeHtml(context)}</p>`

@@ -1,20 +1,48 @@
 import type { APIRoute } from 'astro';
 import { isMasterKeyConfigured } from '../../../lib/secrets.js';
 import { patchSettings, writeSecret } from '../../../lib/settings.js';
+import type { DiscoveryFilterSettings } from '../../../lib/settings.js';
+import { runDiscovery } from '../../../lib/discovery.js';
+import type { DiscoveryProvider } from '../../../lib/discovery.js';
+
+interface ProviderInputCommon {
+  pat?: string;
+  patExpires?: string;
+  autoDiscover?: boolean;
+  autoAppendToReposTxt?: boolean;
+  notifyOnNewRepo?: boolean;
+  filters?: DiscoveryFilterSettings;
+  clear?: boolean;
+}
 
 interface ProvidersInput {
-  github?: {
-    pat?: string; // empty string means "unchanged"
-    patExpires?: string;
-    autoDiscover?: boolean;
-    clear?: boolean; // true => remove PAT entirely
+  github?: ProviderInputCommon;
+  azureDevOps?: ProviderInputCommon & { org?: string };
+}
+
+function sanitizeFilters(input: unknown): DiscoveryFilterSettings | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const f = input as Record<string, unknown>;
+  const out: DiscoveryFilterSettings = {};
+
+  const toList = (v: unknown): string[] | undefined => {
+    if (Array.isArray(v)) return v.map(String).map((s) => s.trim()).filter(Boolean);
+    if (typeof v === 'string')
+      return v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    return undefined;
   };
-  azureDevOps?: {
-    pat?: string;
-    patExpires?: string;
-    org?: string;
-    clear?: boolean;
-  };
+
+  const allow = toList(f.ownerAllowList);
+  if (allow !== undefined) out.ownerAllowList = allow;
+  const deny = toList(f.ownerDenyList);
+  if (deny !== undefined) out.ownerDenyList = deny;
+  if (f.visibility === 'public' || f.visibility === 'private' || f.visibility === 'all') {
+    out.visibility = f.visibility;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export const PUT: APIRoute = async ({ request }) => {
@@ -26,14 +54,37 @@ export const PUT: APIRoute = async ({ request }) => {
   }
 
   const settingsPatch: {
-    github?: { patExpires?: string; autoDiscover?: boolean };
-    azureDevOps?: { patExpires?: string; org?: string };
+    github?: {
+      patExpires?: string;
+      autoDiscover?: boolean;
+      autoAppendToReposTxt?: boolean;
+      notifyOnNewRepo?: boolean;
+      filters?: DiscoveryFilterSettings;
+    };
+    azureDevOps?: {
+      patExpires?: string;
+      autoDiscover?: boolean;
+      org?: string;
+      autoAppendToReposTxt?: boolean;
+      notifyOnNewRepo?: boolean;
+      filters?: DiscoveryFilterSettings;
+    };
   } = {};
+
+  const providersToDiscover: DiscoveryProvider[] = [];
 
   if (body.github) {
     settingsPatch.github = {};
-    if (body.github.patExpires !== undefined) settingsPatch.github.patExpires = body.github.patExpires || undefined;
-    if (body.github.autoDiscover !== undefined) settingsPatch.github.autoDiscover = Boolean(body.github.autoDiscover);
+    if (body.github.patExpires !== undefined)
+      settingsPatch.github.patExpires = body.github.patExpires || undefined;
+    if (body.github.autoDiscover !== undefined)
+      settingsPatch.github.autoDiscover = Boolean(body.github.autoDiscover);
+    if (body.github.autoAppendToReposTxt !== undefined)
+      settingsPatch.github.autoAppendToReposTxt = Boolean(body.github.autoAppendToReposTxt);
+    if (body.github.notifyOnNewRepo !== undefined)
+      settingsPatch.github.notifyOnNewRepo = Boolean(body.github.notifyOnNewRepo);
+    if (body.github.filters !== undefined)
+      settingsPatch.github.filters = sanitizeFilters(body.github.filters);
 
     if (body.github.clear) {
       writeSecret('github.pat', undefined);
@@ -46,12 +97,25 @@ export const PUT: APIRoute = async ({ request }) => {
       }
       writeSecret('github.pat', body.github.pat);
     }
+    providersToDiscover.push('github');
   }
 
   if (body.azureDevOps) {
     settingsPatch.azureDevOps = {};
-    if (body.azureDevOps.patExpires !== undefined) settingsPatch.azureDevOps.patExpires = body.azureDevOps.patExpires || undefined;
-    if (body.azureDevOps.org !== undefined) settingsPatch.azureDevOps.org = body.azureDevOps.org || undefined;
+    if (body.azureDevOps.patExpires !== undefined)
+      settingsPatch.azureDevOps.patExpires = body.azureDevOps.patExpires || undefined;
+    if (body.azureDevOps.org !== undefined)
+      settingsPatch.azureDevOps.org = body.azureDevOps.org || undefined;
+    if (body.azureDevOps.autoDiscover !== undefined)
+      settingsPatch.azureDevOps.autoDiscover = Boolean(body.azureDevOps.autoDiscover);
+    if (body.azureDevOps.autoAppendToReposTxt !== undefined)
+      settingsPatch.azureDevOps.autoAppendToReposTxt = Boolean(
+        body.azureDevOps.autoAppendToReposTxt,
+      );
+    if (body.azureDevOps.notifyOnNewRepo !== undefined)
+      settingsPatch.azureDevOps.notifyOnNewRepo = Boolean(body.azureDevOps.notifyOnNewRepo);
+    if (body.azureDevOps.filters !== undefined)
+      settingsPatch.azureDevOps.filters = sanitizeFilters(body.azureDevOps.filters);
 
     if (body.azureDevOps.clear) {
       writeSecret('azureDevOps.pat', undefined);
@@ -64,11 +128,24 @@ export const PUT: APIRoute = async ({ request }) => {
       }
       writeSecret('azureDevOps.pat', body.azureDevOps.pat);
     }
+    providersToDiscover.push('azureDevOps');
   }
 
   patchSettings(settingsPatch);
 
-  return new Response(JSON.stringify({ ok: true }), {
+  // Fire-and-forget background discovery so the UI can show updated repos
+  // without blocking the HTTP response. Errors are logged inside runDiscovery.
+  let discoveryStarted = false;
+  if (providersToDiscover.length > 0) {
+    discoveryStarted = true;
+    setImmediate(() => {
+      runDiscovery({ providers: providersToDiscover }).catch((err) => {
+        console.error('[providers] Background discovery failed:', err);
+      });
+    });
+  }
+
+  return new Response(JSON.stringify({ ok: true, discoveryStarted }), {
     headers: { 'Content-Type': 'application/json' },
   });
 };

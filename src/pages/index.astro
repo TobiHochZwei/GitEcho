@@ -32,7 +32,13 @@ const statusText = stats.hadRecentBackup ? '✅ Backups up to date' : '⚠️ No
     </div>
     <div class="card">
       <h3>Backup Mode</h3>
-      <p style="font-size: 1.2rem;">{config.backupMode === 'option1' ? '📂 Git Pull (Option 1)' : '📦 ZIP Snapshots (Option 2)'}</p>
+      <p style="font-size: 1.2rem;">{
+        config.backupMode === 'option1'
+          ? '📂 Git Pull (Option 1)'
+          : config.backupMode === 'option3'
+            ? '📂📦 Mirror + ZIP Snapshots (Option 3)'
+            : '📦 ZIP Snapshots (Option 2)'
+      }</p>
     </div>
     <div class="card">
       <h3>Providers</h3>

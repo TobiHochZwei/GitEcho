@@ -11,6 +11,7 @@ import path from 'node:path';
 import os from 'node:os';
 import archiver from 'archiver';
 import type { ProviderPlugin, RepositoryInfo } from '../plugins/interface';
+import { isUpstreamUnavailable } from '../plugins/errors';
 import { getRepositoryByUrl } from '../database';
 
 function computeChecksum(filePath: string): string {
@@ -36,7 +37,7 @@ export async function backupOption2(
   plugin: ProviderPlugin,
   repo: RepositoryInfo,
   backupsDir: string,
-): Promise<{ success: boolean; error?: string; checksum?: string; zipPath?: string }> {
+): Promise<{ success: boolean; error?: string; checksum?: string; zipPath?: string; unavailable?: boolean }> {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), 'gitecho-'));
 
   try {
@@ -74,7 +75,7 @@ export async function backupOption2(
     return { success: true, checksum, zipPath: finalZipPath };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { success: false, error: message };
+    return { success: false, error: message, unavailable: isUpstreamUnavailable(err) };
   } finally {
     // Always clean up temp directory
     if (existsSync(tempDir)) {

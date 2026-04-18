@@ -5,13 +5,14 @@
 
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import { isUpstreamUnavailable } from '../plugins/errors';
 import type { ProviderPlugin, RepositoryInfo } from '../plugins/interface';
 
 export async function backupOption1(
   plugin: ProviderPlugin,
   repo: RepositoryInfo,
   backupsDir: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; unavailable?: boolean }> {
   const targetDir = path.join(backupsDir, repo.provider, repo.owner, repo.name);
 
   try {
@@ -37,6 +38,6 @@ export async function backupOption1(
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { success: false, error: message };
+    return { success: false, error: message, unavailable: isUpstreamUnavailable(err) };
   }
 }

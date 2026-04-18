@@ -51,6 +51,27 @@ WebApp features
 - Browse (`/browse/<provider>/<owner>/<repo>/...`, option1 only) — read-only file/folder navigation of the cloned repo, with download as ZIP for files, folders, or the whole repo.
 - ZIP archives (`/zips/<provider>/<owner>/<repo>`, option2 only) — list of stored ZIP snapshots for a repo with size, date, and download link.
 
+### Unavailable upstream repositories
+
+When an upstream repository can no longer be reached (deleted, renamed, made
+private, PAT no longer authorized, or the host returns 404 / 403) GitEcho:
+
+- **continues the run** for all remaining repositories — a single missing repo
+  never aborts the cycle;
+- marks the affected repository with the `unavailable` status (visible on
+  `/repos` and in the per-run details on `/runs/<id>`);
+- records `repos_unavailable` on the `backup_runs` row so the count is shown
+  in `/runs` and the dashboard;
+- adds an **Unavailable Upstream** count card and a warning banner to the
+  dashboard whenever any repository is currently unavailable;
+- sends **one summary email per run** listing all repositories that became
+  unavailable during that run (independent of `NOTIFY_ON_SUCCESS`; only sent
+  when SMTP is configured).
+
+Existing local backups (clones / ZIP snapshots) are kept untouched — nothing is
+deleted automatically. Once the upstream becomes reachable again the next
+successful backup transitions the repository back to `success`.
+
  Implementation Strategy:
  - Make the providers like Azure DevOps / GitHub in a plugin style to have the possibility to add other git tools easily in the future
 

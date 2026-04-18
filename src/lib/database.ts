@@ -36,6 +36,7 @@ export interface BackupRun {
   repos_total: number;
   repos_success: number;
   repos_failed: number;
+  repos_unavailable: number;
   error_summary: string | null;
   backup_mode: string;
 }
@@ -57,6 +58,7 @@ export interface BackupStats {
   totalRepos: number;
   lastRunStatus: string | null;
   hadRecentBackup: boolean;
+  unavailableCount: number;
 }
 
 // ─── Module-level singleton ──────────────────────────────────────────
@@ -88,6 +90,7 @@ const SCHEMA = `
     repos_total INTEGER DEFAULT 0,
     repos_success INTEGER DEFAULT 0,
     repos_failed INTEGER DEFAULT 0,
+    repos_unavailable INTEGER DEFAULT 0,
     error_summary TEXT,
     backup_mode TEXT NOT NULL
   );
@@ -117,8 +120,25 @@ export function initDatabase(dataDir: string): DatabaseInstance {
   instance.pragma('foreign_keys = ON');
   instance.exec(SCHEMA);
 
+  // Idempotent migrations for older databases that pre-date a column.
+  migrateAddColumnIfMissing(instance, 'backup_runs', 'repos_unavailable', 'INTEGER DEFAULT 0');
+
   db = instance;
   return instance;
+}
+
+function migrateAddColumnIfMissing(
+  instance: DatabaseInstance,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  const cols = instance
+    .prepare(`PRAGMA table_info(${table})`)
+    .all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === column)) {
+    instance.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 export function getDatabase(): DatabaseInstance {
@@ -269,6 +289,10 @@ export function updateBackupRun(id: number, updates: Partial<BackupRun>): void {
     fields.push('repos_failed = @repos_failed');
     values.repos_failed = updates.repos_failed;
   }
+  if (updates.repos_unavailable !== undefined) {
+    fields.push('repos_unavailable = @repos_unavailable');
+    values.repos_unavailable = updates.repos_unavailable;
+  }
   if (updates.error_summary !== undefined) {
     fields.push('error_summary = @error_summary');
     values.error_summary = updates.error_summary;
@@ -392,5 +416,19 @@ export function getBackupStats(): BackupStats {
     totalRepos,
     lastRunStatus: latestRun?.status ?? null,
     hadRecentBackup: recentSuccess.count > 0,
+    unavailableCount: (
+      database
+        .prepare(`SELECT COUNT(*) as count FROM repositories WHERE last_sync_status = 'unavailable'`)
+        .get() as { count: number }
+    ).count,
   };
+}
+
+export function getUnavailableRepositories(): Repository[] {
+  const database = getDatabase();
+  return database
+    .prepare(
+      `SELECT * FROM repositories WHERE last_sync_status = 'unavailable' ORDER BY owner, name`,
+    )
+    .all() as Repository[];
 }

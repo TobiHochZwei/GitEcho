@@ -228,6 +228,48 @@ export async function notifyBackupSuccess(summary: BackupSummary): Promise<void>
   await sendNotification('✅ GitEcho: Backup completed', layout('Backup Summary', body));
 }
 
+export async function notifyUnavailableRepos(
+  unavailable: Array<{ repo: string; url: string; error: string }>,
+): Promise<void> {
+  if (unavailable.length === 0) return;
+
+  const rows = unavailable
+    .map((u) => {
+      const href = escapeHtml(u.url);
+      const label = escapeHtml(u.repo);
+      return `<tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px"><a href="${href}" style="color:#0969da;text-decoration:none">${label}</a></td>
+        <td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px;color:#cf222e">${escapeHtml(u.error)}</td>
+      </tr>`;
+    })
+    .join('');
+
+  const body = `
+    <div style="background:#ffe2e0;border-left:4px solid #cf222e;padding:16px;border-radius:4px;margin-bottom:16px">
+      <p style="margin:0;font-size:14px;color:#cf222e;font-weight:600">
+        ${unavailable.length} repository${unavailable.length === 1 ? '' : 'ies'} could not be reached upstream during the latest backup run.
+      </p>
+    </div>
+    <p style="margin:0 0 12px;font-size:14px;color:#24292f">
+      The repositories below appear to be deleted, renamed, made private, or no longer accessible with the current credentials. The backup run continued for all other repositories. Existing local backups are kept untouched.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d0d7de;border-radius:6px;border-collapse:collapse;margin-bottom:16px">
+      <tr style="background:#f6f8fa">
+        <th style="padding:8px 12px;text-align:left;font-size:13px;border-bottom:1px solid #d0d7de">Repository</th>
+        <th style="padding:8px 12px;text-align:left;font-size:13px;border-bottom:1px solid #d0d7de">Error</th>
+      </tr>
+      ${rows}
+    </table>
+    <p style="margin:16px 0 0;font-size:13px;color:#656d76">
+      Review them in the Repositories page and remove or update the URL in <code>repos.txt</code> if appropriate.
+    </p>`;
+
+  await sendNotification(
+    `🚨 GitEcho: ${unavailable.length} upstream repo${unavailable.length === 1 ? '' : 's'} unavailable`,
+    layout('Upstream repositories unavailable', body),
+  );
+}
+
 export async function checkAndNotifyPatExpiry(): Promise<void> {
   const config = getConfig();
   const now = new Date();

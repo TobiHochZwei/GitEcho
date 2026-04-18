@@ -29,6 +29,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { getRepositoryByUrl } from '../database';
+import { isUpstreamUnavailable } from '../plugins/errors';
 import type { ProviderPlugin, RepositoryInfo } from '../plugins/interface';
 
 const execFileAsync = promisify(execFile);
@@ -59,7 +60,7 @@ export async function backupOption3(
   plugin: ProviderPlugin,
   repo: RepositoryInfo,
   backupsDir: string,
-): Promise<{ success: boolean; error?: string; checksum?: string; zipPath?: string }> {
+): Promise<{ success: boolean; error?: string; checksum?: string; zipPath?: string; unavailable?: boolean }> {
   const repoDir = path.join(backupsDir, repo.provider, repo.owner, repo.name);
   const cloneDir = path.join(repoDir, 'clone');
   const zipsDir = path.join(repoDir, 'zips');
@@ -125,6 +126,6 @@ export async function backupOption3(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { success: false, error: message };
+    return { success: false, error: message, unavailable: isUpstreamUnavailable(err) };
   }
 }

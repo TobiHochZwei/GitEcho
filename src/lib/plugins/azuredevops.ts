@@ -4,6 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { getConfig } from '../config.js';
+import { rethrowAsUnavailableIfMatch } from './errors.js';
 import type { ProviderPlugin, RepositoryInfo } from './interface.js';
 
 const execFileAsync = promisify(execFile);
@@ -234,11 +235,19 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
 
   async cloneRepository(repoUrl: string, targetDir: string): Promise<void> {
     const authenticatedUrl = this.getAuthenticatedUrl(repoUrl);
-    await execCommand('git', ['clone', authenticatedUrl, targetDir]);
+    try {
+      await execCommand('git', ['clone', authenticatedUrl, targetDir]);
+    } catch (error) {
+      rethrowAsUnavailableIfMatch(error, repoUrl);
+    }
   }
 
   async pullRepository(repoDir: string): Promise<void> {
-    await execCommand('git', ['-C', repoDir, 'fetch', '--all']);
+    try {
+      await execCommand('git', ['-C', repoDir, 'fetch', '--all']);
+    } catch (error) {
+      rethrowAsUnavailableIfMatch(error, repoDir);
+    }
 
     try {
       await execCommand('git', ['-C', repoDir, 'pull', '--ff-only']);

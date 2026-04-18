@@ -10,7 +10,7 @@ try {
   stats = getBackupStats();
   recentRuns = getBackupRuns(5);
 } catch (e) {
-  stats = { lastBackupAt: null, totalRepos: 0, lastRunStatus: null, hadRecentBackup: false };
+  stats = { lastBackupAt: null, totalRepos: 0, lastRunStatus: null, hadRecentBackup: false, unavailableCount: 0 };
   recentRuns = [];
   config = { backupMode: 'option1', cronSchedule: '0 2 * * *', github: null, azureDevOps: null };
 }
@@ -20,11 +20,25 @@ const statusText = stats.hadRecentBackup ? '✅ Backups up to date' : '⚠️ No
 ---
 <Layout title="GitEcho - Dashboard" bgColor={bgColor}>
   <h1 style="margin-bottom: 1.5rem;">{statusText}</h1>
-  
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+
+  {stats.unavailableCount > 0 && (
+    <div class="card" style="background:#ffe2e0;border-left:4px solid #cf222e;margin-bottom:1rem;">
+      <strong style="color:#721c24;">⚠️ {stats.unavailableCount} repository{stats.unavailableCount === 1 ? '' : 'ies'} unreachable upstream.</strong>
+      <span style="color:#721c24;"> They were skipped during the last backup; existing local backups are preserved. </span>
+      <a href="/repos" style="color:#0969da;">Review on Repositories →</a>
+    </div>
+  )}
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
     <div class="card">
       <h3>Total Repositories</h3>
       <p style="font-size: 2rem; font-weight: bold;">{stats.totalRepos}</p>
+    </div>
+    <div class="card" style={stats.unavailableCount > 0 ? 'border:1px solid #cf222e;' : ''}>
+      <h3>Unavailable Upstream</h3>
+      <p style={`font-size: 2rem; font-weight: bold; color: ${stats.unavailableCount > 0 ? '#cf222e' : '#155724'};`}>
+        {stats.unavailableCount}
+      </p>
     </div>
     <div class="card">
       <h3>Last Backup</h3>
@@ -60,6 +74,7 @@ const statusText = stats.hadRecentBackup ? '✅ Backups up to date' : '⚠️ No
             <th>Repos</th>
             <th>Success</th>
             <th>Failed</th>
+            <th>Unavailable</th>
             <th>Mode</th>
           </tr>
         </thead>
@@ -71,6 +86,7 @@ const statusText = stats.hadRecentBackup ? '✅ Backups up to date' : '⚠️ No
               <td>{run.repos_total}</td>
               <td>{run.repos_success}</td>
               <td>{run.repos_failed}</td>
+              <td>{run.repos_unavailable ?? 0}</td>
               <td>{run.backup_mode}</td>
             </tr>
           ))}

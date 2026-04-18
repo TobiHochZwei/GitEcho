@@ -253,7 +253,109 @@ custom Astro components. Key conventions:
   (`admin-lte@4.0.0-rc7`). When bumping, sanity-check the sidebar and
   small-box markup since the RC line is still evolving.
 
-## 9. Troubleshooting
+## 9. Database schema migrations
+
+GitEcho ships its schema **inside the Docker image** and reconciles it on
+every container start, so updating to a newer image is a single
+`docker compose up -d` away — no separate migration step.
+
+### What runs at startup
+
+`initDatabase()` in `src/lib/database.ts` is called by both the worker and
+the web server on boot, and performs three steps in order:
+
+1. **`SCHEMA`** — `CREATE TABLE IF NOT EXISTS …` for every table. Fresh
+   installs land here with the current shape.
+2. **Legacy idempotent helpers** — calls like
+   `migrateAddColumnIfMissing(instance, 'backup_runs', 'repos_unavailable', …)`.
+   These pre-date the versioned runner and remain in place so installs
+   that existed before the runner self-heal automatically.
+3. **`runMigrations()`** — applies every entry of the append-only
+   `MIGRATIONS` array whose index is `>= PRAGMA user_version`, each inside
+   a transaction that also bumps `user_version` by exactly one.
+
+The SQLite file lives on the `/data` volume and survives image upgrades,
+so steps 1–3 run against your existing data on every container start.
+
+### Adding a migration
+
+Append a single function to `MIGRATIONS` in `src/lib/database.ts`:
+
+```ts
+const MIGRATIONS: ReadonlyArray<(instance: DatabaseInstance) => void> = [
+  // v0 → v1
+  (instance) => instance.exec(`CREATE INDEX idx_items_run ON backup_items(run_id)`),
+  // v1 → v2
+  (instance) => instance.exec(`ALTER TABLE repositories ADD COLUMN labels TEXT`),
+];
+```
+
+Rules — these are load-bearing, please follow them:
+
+- **Append-only.** Never edit, reorder, or delete a migration that has
+  shipped. The index of each entry *is* its version number.
+- **Don't duplicate** what `SCHEMA` or the legacy helpers already do.
+  Both fresh installs (after `SCHEMA`) and pre-versioning installs (after
+  the legacy helpers) start at `user_version = 0`, so a new migration
+  runs against the same starting shape on both. Encode only the *new*
+  change.
+- **One concern per migration.** The transaction wrapping that
+  `runMigrations` adds rolls back the whole step on failure; keep it
+  small enough that a rollback is meaningful.
+- Update `SCHEMA` in the same PR so fresh installs get the new shape
+  directly without going through the migration.
+
+### Destructive changes
+
+SQLite can't `DROP COLUMN` portably and can't change a column's type. Use
+the standard 4-step recipe inside one migration:
+
+```ts
+(instance) => instance.exec(`
+  CREATE TABLE backup_items_new (...new shape...);
+  INSERT INTO backup_items_new (col1, col2, ...) SELECT col1, col2, ... FROM backup_items;
+  DROP TABLE backup_items;
+  ALTER TABLE backup_items_new RENAME TO backup_items;
+`);
+```
+
+The `runMigrations` transaction makes this atomic. Re-create any indexes
+on the new table inside the same migration.
+
+### Rollback safety
+
+When you make a schema change, try to keep the application code tolerant
+of the previous shape (e.g. read with `COALESCE`, treat new columns as
+nullable on read paths) for one release. That way rolling back to the
+previous image tag still boots cleanly against the migrated DB.
+
+### Pre-startup database snapshot
+
+`entrypoint.sh` snapshots `/data/gitecho.db` to
+`/data/gitecho.db.bak.<timestamp>` on every container start (best-effort,
+keeps the last 5). If a deployment ever leaves the DB in a bad state, the
+recovery is:
+
+```bash
+docker compose down
+# Inside the data volume, restore the most recent good snapshot:
+cp /data/gitecho.db.bak.<timestamp> /data/gitecho.db
+# Re-pin compose to the previous image tag, then:
+docker compose up -d
+```
+
+### Production upgrade checklist
+
+- **Pin image tags** (e.g. `gitecho:1.4.2`, never `:latest`) so upgrades
+  and rollbacks are deliberate.
+- Take a manual backup of the `/data` volume before major upgrades — the
+  built-in snapshot is a safety net, not a substitute for off-host
+  backups.
+- Watch the worker/server logs for `[db] migrating vN → vN+1` lines on
+  the first boot of a new image; absence of such lines means no
+  migration ran.
+
+## 10. Troubleshooting
 
 | Symptom | Likely cause / fix |
 |---|---|

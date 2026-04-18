@@ -6,6 +6,16 @@ echo "GitEcho starting..."
 # Ensure directories exist
 mkdir -p /data /config /backups
 
+# Snapshot the SQLite database before launching, so a botched migration
+# (or any other startup failure that corrupts state) is recoverable from
+# the previous boot. Best-effort: a permission glitch must never block
+# startup. Retains the 5 most recent snapshots.
+if [ -f /data/gitecho.db ]; then
+  ts="$(date +%Y%m%d-%H%M%S)"
+  cp /data/gitecho.db "/data/gitecho.db.bak.${ts}" 2>/dev/null || true
+  ls -1t /data/gitecho.db.bak.* 2>/dev/null | tail -n +6 | xargs -r rm -f
+fi
+
 # Create default repos.txt if not exists
 if [ ! -f /config/repos.txt ]; then
   echo "# Add repository URLs here, one per line" > /config/repos.txt

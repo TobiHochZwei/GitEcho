@@ -1,0 +1,61 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { loadConfig } from '../../lib/config.js';
+import { initDatabase, getBackupItems, getBackupRuns, getRepository } from '../../lib/database.js';
+
+const cfg = loadConfig();
+initDatabase(cfg.dataDir);
+
+const id = Number(Astro.params.id);
+let run: any = null;
+let items: Array<any> = [];
+if (Number.isFinite(id) && id > 0) {
+  run = getBackupRuns(1000).find((r) => r.id === id) ?? null;
+  if (run) {
+    items = getBackupItems(id).map((it) => ({
+      ...it,
+      repo: getRepository(it.repository_id) ?? null,
+    }));
+  }
+}
+---
+<Layout title={`GitEcho - Run #${id}`}>
+  <a href="/runs" class="btn btn-sm" style="margin-bottom:1rem; display:inline-block;">← Backup Runs</a>
+  {!run ? (
+    <div class="card"><p>Run #{id} not found.</p></div>
+  ) : (
+    <>
+      <div class="card" style="margin-bottom:1rem;">
+        <h1 style="margin-bottom:0.5rem;">Run #{run.id} <span class={`status-badge status-${run.status}`}>{run.status}</span></h1>
+        <p><strong>Mode:</strong> {run.backup_mode}</p>
+        <p><strong>Started:</strong> {new Date(run.started_at).toLocaleString()}</p>
+        {run.completed_at && <p><strong>Completed:</strong> {new Date(run.completed_at).toLocaleString()}</p>}
+        <p><strong>Total:</strong> {run.repos_total} | <strong>Success:</strong> {run.repos_success} | <strong>Failed:</strong> {run.repos_failed}</p>
+        {run.error_summary && <pre style="background:#f8f9fa; padding:0.75rem; border-radius:4px; white-space:pre-wrap;">{run.error_summary}</pre>}
+      </div>
+      <div class="card">
+        <h2>Per-repository results ({items.length})</h2>
+        <table>
+          <thead>
+            <tr><th>Repository</th><th>Status</th><th>Started</th><th>Completed</th><th>Details</th></tr>
+          </thead>
+          <tbody>
+            {items.map((it) => (
+              <tr>
+                <td>{it.repo ? `${it.repo.provider}/${it.repo.owner}/${it.repo.name}` : `#${it.repository_id}`}</td>
+                <td><span class={`status-badge status-${it.status}`}>{it.status}</span></td>
+                <td>{it.started_at ? new Date(it.started_at).toLocaleString() : '—'}</td>
+                <td>{it.completed_at ? new Date(it.completed_at).toLocaleString() : '—'}</td>
+                <td>
+                  {it.error && <div style="color:#cf222e; font-size:0.85em;">{it.error}</div>}
+                  {it.checksum && <div style="font-family:monospace; font-size:0.8em;">sha256: {it.checksum.slice(0, 16)}…</div>}
+                  {it.zip_path && <div style="font-size:0.85em;">ZIP: {it.zip_path}</div>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )}
+</Layout>

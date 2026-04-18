@@ -54,8 +54,9 @@ export class GitHubPlugin implements ProviderPlugin {
   }
 
   async listRepositories(): Promise<RepositoryInfo[]> {
+    const autoDiscover = getConfig().github?.autoDiscover ?? true;
     const [ghRepos, fileRepos] = await Promise.all([
-      this.listFromGitHub(),
+      autoDiscover ? this.listFromGitHub() : Promise.resolve([] as RepositoryInfo[]),
       this.listFromConfigFile(),
     ]);
 

@@ -1,0 +1,79 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { listRepoUrls } from '../../lib/repos-file.js';
+
+let repos: { url: string; provider?: string }[] = [];
+let loadError: string | null = null;
+try {
+  repos = listRepoUrls();
+} catch (err) {
+  loadError = (err as Error).message;
+}
+---
+<Layout title="GitEcho - Settings · Repositories">
+  <a href="/settings" class="btn btn-sm" style="margin-bottom: 1rem; display: inline-block;">← Settings</a>
+  <h1 style="margin-bottom: 1rem;">Repositories</h1>
+  <p style="color: #555; margin-bottom: 1rem;">These URLs are stored in <code>/config/repos.txt</code>. Supported: <code>https://github.com/&lt;owner&gt;/&lt;repo&gt;</code> and <code>https://dev.azure.com/&lt;org&gt;/&lt;project&gt;/_git/&lt;repo&gt;</code>.</p>
+
+  {loadError && <div class="card" style="color:#721c24;">{loadError}</div>}
+
+  <div class="card" style="margin-bottom: 1rem;">
+    <h3>Add a repository</h3>
+    <form id="add-form" style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+      <input type="url" name="url" placeholder="https://github.com/owner/repo" required style="flex: 1; padding: 0.5rem;" />
+      <button type="submit" class="btn">Add</button>
+    </form>
+    <p id="add-msg" style="margin-top:0.5rem; color:#721c24;"></p>
+  </div>
+
+  <div class="card">
+    <h3>Configured ({repos.length})</h3>
+    {repos.length === 0 ? (
+      <p>No repositories configured yet.</p>
+    ) : (
+      <table>
+        <thead><tr><th>Provider</th><th>URL</th><th></th></tr></thead>
+        <tbody>
+          {repos.map(r => (
+            <tr>
+              <td>{r.provider === 'github' ? '🐙 GitHub' : r.provider === 'azuredevops' ? '🔷 Azure DevOps' : '❓ Unknown'}</td>
+              <td><code>{r.url}</code></td>
+              <td><button class="btn btn-sm" data-url={r.url} data-action="delete">Remove</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </div>
+</Layout>
+
+<script is:inline>
+  const form = document.getElementById('add-form');
+  const msg = document.getElementById('add-msg');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    msg.textContent = '';
+    const data = new FormData(form);
+    const url = data.get('url');
+    const res = await fetch('/api/repos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (res.ok) location.reload();
+    else {
+      const j = await res.json().catch(() => ({}));
+      msg.textContent = j.error || 'Failed to add';
+    }
+  });
+  document.querySelectorAll('button[data-action="delete"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const url = btn.getAttribute('data-url');
+      if (!url) return;
+      if (!confirm('Remove ' + url + ' from repos.txt?')) return;
+      const res = await fetch('/api/repos?url=' + encodeURIComponent(url), { method: 'DELETE' });
+      if (res.ok) location.reload();
+      else alert('Failed to remove');
+    });
+  });
+</script>

@@ -1,6 +1,24 @@
+// Configuration loader.
+//
+// Layers (lowest precedence first):
+//   1. Built-in defaults
+//   2. Environment variables
+//   3. /config/settings.json (managed via the Settings UI)
+//   4. /config/secrets.json  (encrypted PATs / SMTP password)
+//
+// loadConfig() returns a partial AppConfig — providers and SMTP may be
+// undefined when nothing has been configured yet. Callers that strictly
+// require a provider should call isBackupCapable().
+
+import { loadSettings, readSecret } from './settings.js';
+
 export interface ProviderConfig {
   pat: string;
   patExpires: Date;
+  /** Only used by GitHub: discover all PAT-visible repos in addition to repos.txt. */
+  autoDiscover?: boolean;
+  /** Only used by Azure DevOps: organization (bare name or full URL). */
+  org?: string;
 }
 
 export interface SmtpConfig {
@@ -33,18 +51,14 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
 function parseInteger(value: string | undefined, defaultValue: number): number {
   if (value === undefined || value === '') return defaultValue;
   const parsed = Number.parseInt(value, 10);
-  if (Number.isNaN(parsed)) {
-    throw new Error(`Invalid integer value: "${value}"`);
-  }
+  if (Number.isNaN(parsed)) return defaultValue;
   return parsed;
 }
 
-function parseDate(value: string, label: string): Date {
+function parseDateOrUndefined(value: string | undefined): Date | undefined {
+  if (!value) return undefined;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    throw new Error(`${label} is not a valid ISO 8601 date: "${value}"`);
-  }
-  return date;
+  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 function isValidCron(expression: string): boolean {
@@ -53,124 +67,104 @@ function isValidCron(expression: string): boolean {
 }
 
 function loadProvider(
-  patKey: string,
-  expiresKey: string,
-  name: string,
-  env: Record<string, string | undefined>,
+  patEnv: string | undefined,
+  patExpiresEnv: string | undefined,
+  storedPat: string | undefined,
+  storedExpires: string | undefined,
+  storedAutoDiscover: boolean | undefined,
+  storedOrg: string | undefined,
+  envOrg: string | undefined,
 ): ProviderConfig | undefined {
-  const pat = env[patKey];
-  const expires = env[expiresKey];
+  // Settings/secrets win when present, else fall back to env
+  const pat = storedPat ?? patEnv;
+  const expiresRaw = storedExpires ?? patExpiresEnv;
+  const expires = parseDateOrUndefined(expiresRaw);
 
-  if (!pat && !expires) return undefined;
-
-  if (pat && !expires) {
-    throw new Error(`${expiresKey} is required when ${patKey} is set`);
-  }
-  if (!pat && expires) {
-    throw new Error(`${patKey} is required when ${expiresKey} is set`);
-  }
+  if (!pat || !expires) return undefined;
 
   return {
-    pat: pat!,
-    patExpires: parseDate(expires!, `${name} PAT expiration (${expiresKey})`),
+    pat,
+    patExpires: expires,
+    autoDiscover: storedAutoDiscover,
+    org: storedOrg ?? envOrg,
   };
 }
 
-function loadSmtp(env: Record<string, string | undefined>): SmtpConfig | undefined {
-  const fields = {
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    user: env.SMTP_USER,
-    pass: env.SMTP_PASS,
-    from: env.SMTP_FROM,
-    to: env.SMTP_TO,
-  };
+function loadSmtpFromLayers(env: Record<string, string | undefined>): SmtpConfig | undefined {
+  const settings = loadSettings();
+  const s = settings.smtp ?? {};
+  const host = s.host ?? env.SMTP_HOST;
+  const portRaw = s.port ?? parseInteger(env.SMTP_PORT, 587);
+  const user = s.user ?? env.SMTP_USER;
+  const from = s.from ?? env.SMTP_FROM;
+  const to = s.to ?? env.SMTP_TO;
+  const pass = readSecret('smtp.pass') ?? env.SMTP_PASS;
 
-  const setFields = Object.entries(fields).filter(([, v]) => v !== undefined && v !== '');
-  if (setFields.length === 0) return undefined;
-
-  const requiredKeys: (keyof typeof fields)[] = ['host', 'user', 'pass', 'from', 'to'];
-  const missing = requiredKeys.filter((k) => !fields[k]);
-  if (missing.length > 0) {
-    throw new Error(
-      `Incomplete SMTP configuration. Missing: ${missing.map((k) => `SMTP_${k.toUpperCase()}`).join(', ')}`,
-    );
-  }
+  if (!host || !user || !pass || !from || !to) return undefined;
 
   return {
-    host: fields.host!,
-    port: parseInteger(fields.port, 587),
-    user: fields.user!,
-    pass: fields.pass!,
-    from: fields.from!,
-    to: fields.to!,
+    host,
+    port: typeof portRaw === 'number' ? portRaw : 587,
+    user,
+    pass,
+    from,
+    to,
   };
 }
 
-/** Parse and validate configuration from environment variables. */
+/** Load and merge configuration from env + settings.json + secrets.json. */
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
-  const errors: string[] = [];
+  const settings = loadSettings();
 
-  // Providers
   let github: ProviderConfig | undefined;
   let azureDevOps: ProviderConfig | undefined;
 
   try {
-    github = loadProvider('GITHUB_PAT', 'GITHUB_PAT_EXPIRES', 'GitHub', env);
-  } catch (e) {
-    errors.push((e as Error).message);
-  }
-
-  try {
-    azureDevOps = loadProvider('AZUREDEVOPS_PAT', 'AZUREDEVOPS_PAT_EXPIRES', 'Azure DevOps', env);
-  } catch (e) {
-    errors.push((e as Error).message);
-  }
-
-  if (!github && !azureDevOps && errors.length === 0) {
-    errors.push(
-      'At least one provider must be configured. Set GITHUB_PAT/GITHUB_PAT_EXPIRES or AZUREDEVOPS_PAT/AZUREDEVOPS_PAT_EXPIRES.',
+    github = loadProvider(
+      env.GITHUB_PAT,
+      env.GITHUB_PAT_EXPIRES,
+      readSecret('github.pat'),
+      settings.github?.patExpires,
+      settings.github?.autoDiscover,
+      undefined,
+      undefined,
     );
+  } catch (err) {
+    console.error('[config] Failed to load GitHub provider:', (err as Error).message);
   }
 
-  // Backup mode
-  const rawBackupMode = env.BACKUP_MODE ?? 'option1';
-  if (rawBackupMode !== 'option1' && rawBackupMode !== 'option2') {
-    errors.push(`BACKUP_MODE must be "option1" or "option2", got "${rawBackupMode}"`);
-  }
-  const backupMode = (rawBackupMode === 'option2' ? 'option2' : 'option1') as AppConfig['backupMode'];
-
-  // Cron schedule
-  const cronSchedule = env.CRON_SCHEDULE ?? '0 2 * * *';
-  if (!isValidCron(cronSchedule)) {
-    errors.push(`CRON_SCHEDULE is not a valid cron expression (expected 5-6 fields): "${cronSchedule}"`);
-  }
-
-  // SMTP
-  let smtp: SmtpConfig | undefined;
   try {
-    smtp = loadSmtp(env);
-  } catch (e) {
-    errors.push((e as Error).message);
+    azureDevOps = loadProvider(
+      env.AZUREDEVOPS_PAT,
+      env.AZUREDEVOPS_PAT_EXPIRES,
+      readSecret('azureDevOps.pat'),
+      settings.azureDevOps?.patExpires,
+      undefined,
+      settings.azureDevOps?.org,
+      env.AZUREDEVOPS_ORG,
+    );
+  } catch (err) {
+    console.error('[config] Failed to load Azure DevOps provider:', (err as Error).message);
   }
 
-  // Scalars
-  let patExpiryWarnDays = 14;
-  try {
-    patExpiryWarnDays = parseInteger(env.PAT_EXPIRY_WARN_DAYS, 14);
-  } catch {
-    errors.push(`PAT_EXPIRY_WARN_DAYS must be a valid integer, got "${env.PAT_EXPIRY_WARN_DAYS}"`);
-  }
+  const rawBackupMode = settings.backupMode ?? env.BACKUP_MODE ?? 'option1';
+  const backupMode: AppConfig['backupMode'] = rawBackupMode === 'option2' ? 'option2' : 'option1';
 
-  const notifyOnSuccess = parseBoolean(env.NOTIFY_ON_SUCCESS, false);
+  const cronCandidate = settings.cronSchedule ?? env.CRON_SCHEDULE ?? '0 2 * * *';
+  const cronSchedule = isValidCron(cronCandidate) ? cronCandidate : '0 2 * * *';
 
-  // Warn when email notifications are enabled but SMTP is not configured
+  const smtp = loadSmtpFromLayers(env);
+
+  const patExpiryWarnDays = settings.patExpiryWarnDays ?? parseInteger(env.PAT_EXPIRY_WARN_DAYS, 14);
+  const notifyOnSuccess =
+    settings.notifyOnSuccess !== undefined
+      ? Boolean(settings.notifyOnSuccess)
+      : parseBoolean(env.NOTIFY_ON_SUCCESS, false);
+
   if (notifyOnSuccess && !smtp) {
-    console.warn('[config] NOTIFY_ON_SUCCESS is enabled but SMTP is not configured — notifications will not be sent.');
-  }
-
-  if (errors.length > 0) {
-    throw new Error(`Configuration errors:\n  - ${errors.join('\n  - ')}`);
+    console.warn(
+      '[config] NOTIFY_ON_SUCCESS is enabled but SMTP is not fully configured — notifications will not be sent.',
+    );
   }
 
   return {
@@ -187,12 +181,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
 }
 
-let cached: AppConfig | undefined;
-
-/** Return a cached singleton config, loading from environment on first call. */
+/** Re-load config on every call so UI changes propagate without restart. */
 export function getConfig(): AppConfig {
-  if (!cached) {
-    cached = loadConfig();
-  }
-  return cached;
+  return loadConfig();
+}
+
+/** True when at least one provider is fully configured. */
+export function isBackupCapable(config: AppConfig = getConfig()): boolean {
+  return Boolean(config.github || config.azureDevOps);
 }

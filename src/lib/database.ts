@@ -108,6 +108,25 @@ const SCHEMA = `
   );
 `;
 
+// ─── Versioned migrations ────────────────────────────────────────────
+//
+// Append-only list of schema migrations. Each entry takes the database
+// from version `index` to version `index + 1`. Rules:
+//
+//   1. NEVER edit or remove a previously-shipped migration. Only append.
+//   2. Each migration runs inside a transaction together with the
+//      `PRAGMA user_version` bump (handled by `runMigrations`), so a
+//      crash leaves the DB at the previous version.
+//   3. For destructive changes (drop/rename column, change type) follow
+//      SQLite's 4-step recipe inside the migration: create new table →
+//      INSERT … SELECT → DROP old → RENAME new.
+//
+// See DEVELOPMENT.md §10 for the full strategy.
+const MIGRATIONS: ReadonlyArray<(instance: DatabaseInstance) => void> = [
+  // Example (do not uncomment — illustrative only):
+  // (instance) => instance.exec(`CREATE INDEX idx_items_run ON backup_items(run_id)`),
+];
+
 // ─── Database initialization ─────────────────────────────────────────
 
 export function initDatabase(dataDir: string): DatabaseInstance {
@@ -121,7 +140,11 @@ export function initDatabase(dataDir: string): DatabaseInstance {
   instance.exec(SCHEMA);
 
   // Idempotent migrations for older databases that pre-date a column.
+  // These remain in place to self-heal installs that existed before the
+  // versioned migration runner was introduced.
   migrateAddColumnIfMissing(instance, 'backup_runs', 'repos_unavailable', 'INTEGER DEFAULT 0');
+
+  runMigrations(instance);
 
   db = instance;
   return instance;
@@ -138,6 +161,25 @@ function migrateAddColumnIfMissing(
     .all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === column)) {
     instance.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+function runMigrations(instance: DatabaseInstance): void {
+  const current = instance.pragma('user_version', { simple: true }) as number;
+
+  // Both fresh installs (after `SCHEMA`) and pre-versioning installs
+  // (after the legacy `migrateAddColumnIfMissing` helpers above) end up
+  // at the same schema shape with `user_version === 0`. From here, any
+  // appended migration runs on both — so authors of new migrations
+  // should only encode NEW changes, never re-do what `SCHEMA` or the
+  // legacy helpers already do.
+  for (let v = current; v < MIGRATIONS.length; v++) {
+    const next = v + 1;
+    console.log(`[db] migrating v${v} → v${next}`);
+    instance.transaction(() => {
+      MIGRATIONS[v](instance);
+      instance.pragma(`user_version = ${next}`);
+    })();
   }
 }
 

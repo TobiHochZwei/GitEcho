@@ -237,6 +237,38 @@ volumes:
 | `/config` | `repos.txt` — text file containing repository URLs to back up |
 | `/backups` | Cloned repositories (option1) or ZIP archives (option2) |
 
+### Upgrading
+
+GitEcho ships its database schema inside the image and reconciles it on
+every container start, so upgrading is a single command:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+What happens on boot:
+
+- `initDatabase()` runs `CREATE TABLE IF NOT EXISTS …` plus a versioned,
+  append-only migration runner backed by `PRAGMA user_version`. New tables
+  appear automatically; new migrations are applied in order, each in a
+  transaction.
+- `entrypoint.sh` first snapshots `/data/gitecho.db` to
+  `/data/gitecho.db.bak.<timestamp>` (best-effort, last 5 retained), so a
+  botched upgrade is recoverable by restoring the most recent snapshot
+  and re-pinning the previous image tag.
+- The `/data` volume persists across upgrades, so all history, repos and
+  metadata survive.
+
+Recommendations for production:
+
+- **Pin image tags** (e.g. `gitecho:1.4.2`, never `:latest`) so upgrades
+  and rollbacks are deliberate.
+- Back up the `/data` volume off-host before major upgrades — the
+  built-in snapshot is a safety net, not a substitute.
+
+For the full migration strategy and how to add a new schema migration as
+a contributor, see [DEVELOPMENT.md §9](./DEVELOPMENT.md#9-database-schema-migrations).
+
 ### `/config/repos.txt` format
 
 One repository URL per line. Lines that are blank or start with `#` are

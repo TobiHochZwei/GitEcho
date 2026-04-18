@@ -189,6 +189,22 @@ export function getRepositoryByUrl(url: string): Repository | undefined {
     | undefined;
 }
 
+/** True when no repository row exists with the given URL (case-insensitive,
+ * `.git` suffix tolerant). Used by the discovery pipeline to detect a
+ * "first sighting" before upserting. */
+export function isNewRepository(url: string): boolean {
+  const database = getDatabase();
+  const normalized = url.replace(/\.git$/, '').toLowerCase();
+  const row = database
+    .prepare(
+      `SELECT 1 FROM repositories
+       WHERE LOWER(REPLACE(url, '.git', '')) = ?
+       LIMIT 1`,
+    )
+    .get(normalized);
+  return row === undefined;
+}
+
 export function updateRepositorySync(
   id: number,
   status: string,

@@ -15,6 +15,7 @@ const cfg = getConfig();
         <select name="backupMode" style="padding:0.5rem;">
           <option value="option1" selected={cfg.backupMode === 'option1'}>option1 — git pull (history protected)</option>
           <option value="option2" selected={cfg.backupMode === 'option2'}>option2 — ZIP snapshots</option>
+          <option value="option3" selected={cfg.backupMode === 'option3'}>option3 — mirror clone + ZIP snapshots (strongest revision safety)</option>
         </select>
       </label>
       <label>

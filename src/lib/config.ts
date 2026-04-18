@@ -11,14 +11,21 @@
 // require a provider should call isBackupCapable().
 
 import { loadSettings, readSecret } from './settings.js';
+import type { DiscoveryFilterSettings } from './settings.js';
 
 export interface ProviderConfig {
   pat: string;
   patExpires: Date;
-  /** Only used by GitHub: discover all PAT-visible repos in addition to repos.txt. */
+  /** Discover all PAT-visible repos in addition to repos.txt. Defaults to true. */
   autoDiscover?: boolean;
   /** Only used by Azure DevOps: organization (bare name or full URL). */
   org?: string;
+  /** Append newly-discovered URLs to /config/repos.txt. Defaults to false. */
+  autoAppendToReposTxt?: boolean;
+  /** Notify by email when previously-unseen repos are discovered. Defaults to true. */
+  notifyOnNewRepo?: boolean;
+  /** Filters applied during discovery. */
+  filters?: DiscoveryFilterSettings;
 }
 
 export interface SmtpConfig {
@@ -33,7 +40,7 @@ export interface SmtpConfig {
 export interface AppConfig {
   github?: ProviderConfig;
   azureDevOps?: ProviderConfig;
-  backupMode: 'option1' | 'option2';
+  backupMode: 'option1' | 'option2' | 'option3';
   cronSchedule: string;
   smtp?: SmtpConfig;
   notifyOnSuccess: boolean;
@@ -74,6 +81,9 @@ function loadProvider(
   storedAutoDiscover: boolean | undefined,
   storedOrg: string | undefined,
   envOrg: string | undefined,
+  storedAutoAppend: boolean | undefined,
+  storedNotifyOnNew: boolean | undefined,
+  storedFilters: DiscoveryFilterSettings | undefined,
 ): ProviderConfig | undefined {
   // Settings/secrets win when present, else fall back to env
   const pat = storedPat ?? patEnv;
@@ -87,6 +97,9 @@ function loadProvider(
     patExpires: expires,
     autoDiscover: storedAutoDiscover,
     org: storedOrg ?? envOrg,
+    autoAppendToReposTxt: storedAutoAppend,
+    notifyOnNewRepo: storedNotifyOnNew,
+    filters: storedFilters,
   };
 }
 
@@ -128,6 +141,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       settings.github?.autoDiscover,
       undefined,
       undefined,
+      settings.github?.autoAppendToReposTxt,
+      settings.github?.notifyOnNewRepo,
+      settings.github?.filters,
     );
   } catch (err) {
     console.error('[config] Failed to load GitHub provider:', (err as Error).message);
@@ -139,16 +155,20 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       env.AZUREDEVOPS_PAT_EXPIRES,
       readSecret('azureDevOps.pat'),
       settings.azureDevOps?.patExpires,
-      undefined,
+      settings.azureDevOps?.autoDiscover,
       settings.azureDevOps?.org,
       env.AZUREDEVOPS_ORG,
+      settings.azureDevOps?.autoAppendToReposTxt,
+      settings.azureDevOps?.notifyOnNewRepo,
+      settings.azureDevOps?.filters,
     );
   } catch (err) {
     console.error('[config] Failed to load Azure DevOps provider:', (err as Error).message);
   }
 
   const rawBackupMode = settings.backupMode ?? env.BACKUP_MODE ?? 'option1';
-  const backupMode: AppConfig['backupMode'] = rawBackupMode === 'option2' ? 'option2' : 'option1';
+  const backupMode: AppConfig['backupMode'] =
+    rawBackupMode === 'option2' || rawBackupMode === 'option3' ? rawBackupMode : 'option1';
 
   const cronCandidate = settings.cronSchedule ?? env.CRON_SCHEDULE ?? '0 2 * * *';
   const cronSchedule = isValidCron(cronCandidate) ? cronCandidate : '0 2 * * *';

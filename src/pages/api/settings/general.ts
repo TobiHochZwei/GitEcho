@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { patchSettings } from '../../../lib/settings.js';
 
 interface GeneralInput {
-  backupMode?: 'option1' | 'option2';
+  backupMode?: 'option1' | 'option2' | 'option3';
   cronSchedule?: string;
 }
 
@@ -22,8 +22,16 @@ export const PUT: APIRoute = async ({ request }) => {
   if (body.cronSchedule !== undefined && !isValidCron(body.cronSchedule)) {
     return new Response(JSON.stringify({ error: 'Invalid cron expression' }), { status: 400 });
   }
-  if (body.backupMode !== undefined && body.backupMode !== 'option1' && body.backupMode !== 'option2') {
-    return new Response(JSON.stringify({ error: 'backupMode must be option1 or option2' }), { status: 400 });
+  if (
+    body.backupMode !== undefined &&
+    body.backupMode !== 'option1' &&
+    body.backupMode !== 'option2' &&
+    body.backupMode !== 'option3'
+  ) {
+    return new Response(
+      JSON.stringify({ error: 'backupMode must be option1, option2, or option3' }),
+      { status: 400 },
+    );
   }
 
   patchSettings({

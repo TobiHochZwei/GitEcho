@@ -27,7 +27,22 @@ Option1:
 Option2:
 - Every run creates a ZIP of the repo. A SHA-256 checksum decides whether the new ZIP is kept: if the checksum matches the previous run's stored checksum, the new ZIP is discarded and the previous archive is kept; if it differs, the new ZIP is stored under a timestamped filename.
 
-User can decide which mode via environment variable: option1 or option2
+Option3 (mirror + ZIP snapshots):
+- Maintains a bare `git clone --mirror` of the repository under
+  `/backups/<provider>/<owner>/<repo>/clone/` so every branch, tag, and
+  note is preserved. Auto-GC is disabled (`gc.auto = 0`) on the mirror so
+  unreachable commits (e.g. after an upstream force-push) stay alive on
+  disk. On every cycle the remote URL is refreshed (PAT-rotation safe)
+  and `git remote update --prune` is run.
+- In addition, a ZIP snapshot of `HEAD` is produced via `git archive` and
+  written to `/backups/<provider>/<owner>/<repo>/zips/<repo>_<timestamp>.zip`,
+  deduplicated by SHA-256 just like option2.
+- This is the strongest revision-safety mode but doubles the on-disk
+  footprint (mirror + ZIPs). The Browse UI is not available for option3
+  repos because a bare mirror has no working tree — use the ZIP archives
+  page instead.
+
+User can decide which mode via environment variable: option1, option2, or option3
 
 WebApp features
 - Dashboard (`/`) — overall status, total repos, last backup time, current mode, and the most recent backup runs. Background turns green/red based on whether a successful backup occurred in the last 24h.
@@ -88,7 +103,7 @@ WebApp features
 | `GITHUB_PAT_EXPIRES` | Yes* | Expiration date of the GitHub PAT (ISO 8601) | `2026-06-01` |
 | `AZUREDEVOPS_PAT_EXPIRES` | Yes* | Expiration date of the Azure DevOps PAT (ISO 8601) | `2026-06-01` |
 | `AZUREDEVOPS_ORG` | No | Azure DevOps organization (bare name or full URL). If unset, the org is inferred from the first Azure DevOps URL in `repos.txt`. | `myorg` or `https://dev.azure.com/myorg` |
-| `BACKUP_MODE` | No | Backup strategy: `option1` (git pull) or `option2` (ZIP snapshots) | `option1` |
+| `BACKUP_MODE` | No | Backup strategy: `option1` (git pull), `option2` (ZIP snapshots), or `option3` (mirror clone + ZIP snapshots — strongest revision safety) | `option1` |
 | `CRON_SCHEDULE` | No | Cron expression for backup cycle | `0 2 * * *` |
 | `SMTP_HOST` | No | SMTP server hostname for email notifications | `smtp.example.com` |
 | `SMTP_PORT` | No | SMTP server port | `587` |
@@ -224,6 +239,24 @@ https://dev.azure.com/myorg/MyProject/_git/my-repo
 > configured `GITHUB_PAT` via `gh repo list` and merges them with the file
 > entries (deduplicated by URL). If you only want a curated subset, use a
 > PAT scoped to those repos.
+>
+> **Azure DevOps auto-discovery:** the Azure DevOps provider also discovers
+> all repositories visible to the configured `AZUREDEVOPS_PAT` via
+> `az devops project list` + `az repos list`. Discovery can be disabled per
+> provider via the `Auto-discover` checkbox on `/settings/providers`.
+>
+> **Filters & auto-add:** on `/settings/providers` you can additionally:
+> - Restrict discovery by **owner/org allow-list** and **deny-list**
+>   (case-insensitive, comma-separated; for Azure DevOps either the org or
+>   the project segment matches).
+> - Restrict by **visibility** (`All` / `Public only` / `Private only`).
+> - Optionally **append newly-discovered URLs to `/config/repos.txt`** so
+>   the file stays in sync with what's being backed up.
+> - Optionally **send an email** when previously-unseen repos are
+>   discovered (requires SMTP).
+>
+> Newly-discovered repos are always persisted in the local SQLite database
+> and appear in the `/repos` UI.
 
 > **Note:** The container is designed to be immutable — all persistent state lives in the mount points. You can safely recreate the container without losing data.
 

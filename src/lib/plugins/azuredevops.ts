@@ -101,6 +101,7 @@ async function discoverOrgUrl(): Promise<string | undefined> {
 
 interface AzProject {
   name: string;
+  visibility?: string;
 }
 
 interface AzRepo {
@@ -164,9 +165,10 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
       });
     }
 
-    // 2. Auto-discover repos via az CLI
+    // 2. Auto-discover repos via az CLI (controlled by the per-provider toggle, default true)
+    const autoDiscover = getConfig().azureDevOps?.autoDiscover ?? true;
     const orgUrl = await discoverOrgUrl();
-    if (orgUrl && this.isConfigured()) {
+    if (autoDiscover && orgUrl && this.isConfigured()) {
       try {
         const projectsJson = await execCommand(
           'az',
@@ -195,6 +197,9 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
             );
 
             const repoList = JSON.parse(reposJson) as AzRepo[];
+            const projectIsPrivate = project.visibility
+              ? project.visibility.toLowerCase() !== 'public'
+              : true;
 
             for (const repo of repoList) {
               const repoUrl =
@@ -208,6 +213,7 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
                 name: repo.name,
                 owner: `${orgUrl.replace('https://dev.azure.com/', '')}/${project.name}`,
                 provider: 'azuredevops',
+                isPrivate: projectIsPrivate,
                 ...(defaultBranch ? { defaultBranch } : {}),
               });
             }

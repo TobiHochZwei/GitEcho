@@ -10,10 +10,11 @@ import {
   updateRepositorySync,
   upsertRepository,
 } from '../database';
-import { getPluginRegistry } from '../plugins/interface';
-import type { RepositoryInfo } from '../plugins/interface';
+import { runDiscovery } from '../discovery';
+import type { RepositoryInfo, ProviderPlugin } from '../plugins/interface';
 import { backupOption1 } from './option1';
 import { backupOption2 } from './option2';
+import { backupOption3 } from './option3';
 
 export interface BackupResult {
   runId: number;
@@ -40,35 +41,15 @@ export async function runBackup(): Promise<BackupResult> {
   let successCount = 0;
   let failedCount = 0;
 
-  // Discover repositories from all configured plugins
-  const plugins = getPluginRegistry().getConfigured();
-  const allRepos: Array<{ plugin: typeof plugins[number]; repo: RepositoryInfo }> = [];
+  // Discover repositories from all configured plugins via the shared pipeline.
+  // This also persists new repos, applies filters, optionally appends to
+  // repos.txt, and emits the "new repos discovered" SMTP notification.
+  const discovery = await runDiscovery();
+  const allRepos: Array<{ plugin: ProviderPlugin; repo: RepositoryInfo }> = discovery.repos;
 
-  for (const plugin of plugins) {
-    try {
-      console.log(`[backup] Authenticating with ${plugin.displayName}...`);
-      const authOk = await plugin.authenticate();
-      if (!authOk) {
-        console.error(`[backup] Authentication failed for ${plugin.displayName}`);
-        continue;
-      }
-
-      console.log(`[backup] Listing repositories from ${plugin.displayName}...`);
-      const repos = await plugin.listRepositories();
-      console.log(`[backup] Found ${repos.length} repositories from ${plugin.displayName}`);
-
-      for (const repo of repos) {
-        upsertRepository({
-          url: repo.url,
-          provider: repo.provider,
-          owner: repo.owner,
-          name: repo.name,
-        });
-        allRepos.push({ plugin, repo });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`[backup] Error fetching repos from ${plugin.displayName}: ${message}`);
+  for (const provider of discovery.providers) {
+    if (!provider.authenticated) {
+      console.error(`[backup] Skipping ${provider.provider}: authentication failed`);
     }
   }
 
@@ -112,7 +93,11 @@ export async function runBackup(): Promise<BackupResult> {
           console.error(`[backup] ✗ ${repoLabel}: ${result.error}`);
         }
       } else {
-        const result = await backupOption2(plugin, repo, backupsDir);
+        // option2 and option3 share the same {checksum, zipPath} result shape.
+        const result =
+          backupMode === 'option3'
+            ? await backupOption3(plugin, repo, backupsDir)
+            : await backupOption2(plugin, repo, backupsDir);
         if (result.success) {
           successCount++;
           updateRepositorySync(dbRepo.id, 'success', undefined, result.checksum);

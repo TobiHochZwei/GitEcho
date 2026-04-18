@@ -10,7 +10,28 @@ const adoStored = Boolean(cfg.azureDevOps?.pat);
 const ghExpires = settings.github?.patExpires ?? cfg.github?.patExpires?.toISOString().slice(0, 10) ?? '';
 const adoExpires = settings.azureDevOps?.patExpires ?? cfg.azureDevOps?.patExpires?.toISOString().slice(0, 10) ?? '';
 const adoOrg = settings.azureDevOps?.org ?? cfg.azureDevOps?.org ?? '';
+
 const ghAutoDiscover = settings.github?.autoDiscover ?? true;
+const adoAutoDiscover = settings.azureDevOps?.autoDiscover ?? true;
+
+const ghAutoAppend = settings.github?.autoAppendToReposTxt ?? false;
+const adoAutoAppend = settings.azureDevOps?.autoAppendToReposTxt ?? false;
+
+const ghNotifyOnNew = settings.github?.notifyOnNewRepo ?? true;
+const adoNotifyOnNew = settings.azureDevOps?.notifyOnNewRepo ?? true;
+
+const ghFilters = settings.github?.filters ?? {};
+const adoFilters = settings.azureDevOps?.filters ?? {};
+
+const ghAllow = (ghFilters.ownerAllowList ?? []).join(', ');
+const ghDeny = (ghFilters.ownerDenyList ?? []).join(', ');
+const ghVisibility = ghFilters.visibility ?? 'all';
+
+const adoAllow = (adoFilters.ownerAllowList ?? []).join(', ');
+const adoDeny = (adoFilters.ownerDenyList ?? []).join(', ');
+const adoVisibility = adoFilters.visibility ?? 'all';
+
+const smtpConfigured = Boolean(cfg.smtp);
 ---
 <Layout title="GitEcho - Settings · Providers">
   <a href="/settings" class="btn btn-sm" style="margin-bottom: 1rem; display: inline-block;">← Settings</a>
@@ -27,13 +48,48 @@ const ghAutoDiscover = settings.github?.autoDiscover ?? true;
         Expiration date (ISO 8601)
         <input type="date" name="patExpires" value={ghExpires} style="padding:0.5rem;" />
       </label>
-      <label style="display:flex; align-items:center; gap:0.5rem;">
-        <input type="checkbox" name="autoDiscover" checked={ghAutoDiscover} />
-        Auto-discover all repos visible to this PAT (in addition to repos.txt)
-      </label>
+
+      <fieldset style="border:1px solid #d0d7de; border-radius:6px; padding:0.75rem; display:grid; gap:0.5rem;">
+        <legend style="padding:0 0.25rem; font-weight:600;">Discovery</legend>
+        <label style="display:flex; align-items:center; gap:0.5rem;">
+          <input type="checkbox" name="autoDiscover" checked={ghAutoDiscover} />
+          Auto-discover all repos visible to this PAT (in addition to repos.txt)
+        </label>
+        <label style="display:flex; align-items:center; gap:0.5rem;">
+          <input type="checkbox" name="autoAppendToReposTxt" checked={ghAutoAppend} />
+          Append newly-discovered repos to <code>/config/repos.txt</code>
+        </label>
+        <label style="display:flex; align-items:center; gap:0.5rem;">
+          <input type="checkbox" name="notifyOnNewRepo" checked={ghNotifyOnNew} disabled={!smtpConfigured} />
+          Notify by email when new repos are discovered
+          {!smtpConfigured && <small style="color:#656d76;">(requires SMTP)</small>}
+        </label>
+      </fieldset>
+
+      <fieldset style="border:1px solid #d0d7de; border-radius:6px; padding:0.75rem; display:grid; gap:0.5rem;">
+        <legend style="padding:0 0.25rem; font-weight:600;">Filters</legend>
+        <label>
+          Owner allow-list (comma-separated; empty = allow all)
+          <input type="text" name="ownerAllowList" value={ghAllow} placeholder="e.g. octocat, my-org" style="width:100%; padding:0.5rem;" />
+        </label>
+        <label>
+          Owner deny-list (comma-separated)
+          <input type="text" name="ownerDenyList" value={ghDeny} placeholder="e.g. some-noisy-org" style="width:100%; padding:0.5rem;" />
+        </label>
+        <label>
+          Visibility
+          <select name="visibility" style="padding:0.5rem;">
+            <option value="all" selected={ghVisibility === 'all'}>All</option>
+            <option value="public" selected={ghVisibility === 'public'}>Public only</option>
+            <option value="private" selected={ghVisibility === 'private'}>Private only</option>
+          </select>
+        </label>
+      </fieldset>
+
       <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
         <button type="submit" class="btn">Save</button>
         <button type="button" class="btn btn-sm" data-action="test">Test connection</button>
+        <button type="button" class="btn btn-sm" data-action="discover">Discover now</button>
         {ghStored && <button type="button" class="btn btn-sm" data-action="clear">Remove stored PAT</button>}
       </div>
       <p class="msg" style="min-height:1.2em;"></p>
@@ -55,9 +111,48 @@ const ghAutoDiscover = settings.github?.autoDiscover ?? true;
         Organization (bare name or full URL)
         <input type="text" name="org" value={adoOrg} placeholder="myorg or https://dev.azure.com/myorg" style="width:100%; padding:0.5rem;" />
       </label>
+
+      <fieldset style="border:1px solid #d0d7de; border-radius:6px; padding:0.75rem; display:grid; gap:0.5rem;">
+        <legend style="padding:0 0.25rem; font-weight:600;">Discovery</legend>
+        <label style="display:flex; align-items:center; gap:0.5rem;">
+          <input type="checkbox" name="autoDiscover" checked={adoAutoDiscover} />
+          Auto-discover all repos visible to this PAT (in addition to repos.txt)
+        </label>
+        <label style="display:flex; align-items:center; gap:0.5rem;">
+          <input type="checkbox" name="autoAppendToReposTxt" checked={adoAutoAppend} />
+          Append newly-discovered repos to <code>/config/repos.txt</code>
+        </label>
+        <label style="display:flex; align-items:center; gap:0.5rem;">
+          <input type="checkbox" name="notifyOnNewRepo" checked={adoNotifyOnNew} disabled={!smtpConfigured} />
+          Notify by email when new repos are discovered
+          {!smtpConfigured && <small style="color:#656d76;">(requires SMTP)</small>}
+        </label>
+      </fieldset>
+
+      <fieldset style="border:1px solid #d0d7de; border-radius:6px; padding:0.75rem; display:grid; gap:0.5rem;">
+        <legend style="padding:0 0.25rem; font-weight:600;">Filters</legend>
+        <label>
+          Owner / project allow-list (comma-separated; matches org or project segment)
+          <input type="text" name="ownerAllowList" value={adoAllow} placeholder="e.g. myorg, MyProject" style="width:100%; padding:0.5rem;" />
+        </label>
+        <label>
+          Owner / project deny-list (comma-separated)
+          <input type="text" name="ownerDenyList" value={adoDeny} placeholder="e.g. ArchiveProject" style="width:100%; padding:0.5rem;" />
+        </label>
+        <label>
+          Visibility
+          <select name="visibility" style="padding:0.5rem;">
+            <option value="all" selected={adoVisibility === 'all'}>All</option>
+            <option value="public" selected={adoVisibility === 'public'}>Public only</option>
+            <option value="private" selected={adoVisibility === 'private'}>Private only</option>
+          </select>
+        </label>
+      </fieldset>
+
       <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
         <button type="submit" class="btn">Save</button>
         <button type="button" class="btn btn-sm" data-action="test">Test connection</button>
+        <button type="button" class="btn btn-sm" data-action="discover">Discover now</button>
         {adoStored && <button type="button" class="btn btn-sm" data-action="clear">Remove stored PAT</button>}
       </div>
       <p class="msg" style="min-height:1.2em;"></p>
@@ -66,20 +161,36 @@ const ghAutoDiscover = settings.github?.autoDiscover ?? true;
 </Layout>
 
 <script is:inline>
+  function parseList(value) {
+    return (value || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
   document.querySelectorAll('.provider-form').forEach((form) => {
     const provider = form.getAttribute('data-provider');
     const msg = form.querySelector('.msg');
 
-    function payload(extra = {}) {
+    function payload() {
       const fd = new FormData(form);
-      const out = { ...extra };
+      const out = {};
       const pat = fd.get('pat');
       if (pat) out.pat = pat;
       const exp = fd.get('patExpires');
       if (exp !== null) out.patExpires = exp;
-      if (provider === 'github') {
-        out.autoDiscover = form.querySelector('input[name="autoDiscover"]').checked;
-      }
+
+      out.autoDiscover = form.querySelector('input[name="autoDiscover"]').checked;
+      out.autoAppendToReposTxt = form.querySelector('input[name="autoAppendToReposTxt"]').checked;
+      const notifyEl = form.querySelector('input[name="notifyOnNewRepo"]');
+      out.notifyOnNewRepo = notifyEl.checked;
+
+      out.filters = {
+        ownerAllowList: parseList(fd.get('ownerAllowList')),
+        ownerDenyList: parseList(fd.get('ownerDenyList')),
+        visibility: fd.get('visibility') || 'all',
+      };
+
       if (provider === 'azureDevOps') {
         const org = fd.get('org');
         if (org !== null) out.org = org;
@@ -100,8 +211,8 @@ const ghAutoDiscover = settings.github?.autoDiscover ?? true;
       const j = await res.json().catch(() => ({}));
       if (res.ok) {
         msg.style.color = '#1a7f37';
-        msg.textContent = 'Saved.';
-        setTimeout(() => location.reload(), 600);
+        msg.textContent = j.discoveryStarted ? 'Saved. Discovery running in background…' : 'Saved.';
+        setTimeout(() => location.reload(), 800);
       } else {
         msg.style.color = '#cf222e';
         msg.textContent = j.error || 'Failed to save';
@@ -132,6 +243,27 @@ const ghAutoDiscover = settings.github?.autoDiscover ?? true;
       } else {
         msg.style.color = '#cf222e';
         msg.textContent = '✗ ' + (j.error || 'Failed');
+      }
+    });
+
+    form.querySelector('[data-action="discover"]').addEventListener('click', async () => {
+      msg.style.color = '#666';
+      msg.textContent = 'Discovering…';
+      const res = await fetch('/api/settings/providers/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(j.providers) && j.providers.length > 0) {
+        const p = j.providers[0];
+        msg.style.color = p.authenticated ? '#1a7f37' : '#cf222e';
+        msg.textContent = p.authenticated
+          ? `✓ Found ${p.newlyDiscovered} new of ${p.total} (filtered out ${p.filteredOut}${p.appendedToReposTxt ? `, appended ${p.appendedToReposTxt}` : ''})`
+          : '✗ Authentication failed';
+      } else {
+        msg.style.color = '#cf222e';
+        msg.textContent = '✗ ' + (j.error || 'Discovery failed');
       }
     });
 

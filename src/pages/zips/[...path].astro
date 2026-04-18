@@ -20,18 +20,33 @@ const owner = parts[1] || '';
 const repoName = parts[2] || '';
 
 const repoDir = join(config.backupsDir, provider, owner, repoName);
+const option3ZipsDir = join(repoDir, 'zips');
+
+// Resolve the directory that holds the .zip files. option3 stores them in
+// a `zips/` subfolder so the mirror clone (`clone/`) can sit next to them.
+// option2 keeps the legacy flat layout. Prefer the option3 layout when it
+// exists so the page works for both.
+let zipsDir: string | null = null;
+let zipsRelative = '';
+if (existsSync(option3ZipsDir)) {
+  zipsDir = option3ZipsDir;
+  zipsRelative = `${pathSegments}/zips`;
+} else if (existsSync(repoDir)) {
+  zipsDir = repoDir;
+  zipsRelative = pathSegments;
+}
 
 let zips: Array<{ name: string; size: number; date: Date }> = [];
 let error: string | null = null;
 
-if (!existsSync(repoDir)) {
+if (!zipsDir) {
   error = 'No ZIP archives found for this repository';
 } else {
-  const items = readdirSync(repoDir);
+  const items = readdirSync(zipsDir);
   zips = items
     .filter(name => name.endsWith('.zip'))
     .map(name => {
-      const stat = statSync(join(repoDir, name));
+      const stat = statSync(join(zipsDir!, name));
       return { name, size: stat.size, date: stat.mtime };
     })
     .sort((a, b) => b.date.getTime() - a.date.getTime());
@@ -57,7 +72,7 @@ if (!existsSync(repoDir)) {
               <td>📦 {zip.name}</td>
               <td>{(zip.size / 1024 / 1024).toFixed(2)} MB</td>
               <td>{zip.date.toLocaleString()}</td>
-              <td><a href={`/api/download?path=${encodeURIComponent(`${pathSegments}/${zip.name}`)}&file=true`} class="btn btn-sm">⬇️ Download</a></td>
+              <td><a href={`/api/download?path=${encodeURIComponent(`${zipsRelative}/${zip.name}`)}&file=true`} class="btn btn-sm">⬇️ Download</a></td>
             </tr>
           ))}
         </tbody>

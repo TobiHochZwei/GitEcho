@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 
 import { getConfig } from '../config.js';
+import { rethrowAsUnavailableIfMatch } from './errors.js';
 import type { ProviderPlugin, RepositoryInfo } from './interface.js';
 
 const execFileAsync = promisify(execFile);
@@ -74,11 +75,19 @@ export class GitHubPlugin implements ProviderPlugin {
 
   async cloneRepository(repoUrl: string, targetDir: string): Promise<void> {
     const url = this.getAuthenticatedUrl(repoUrl);
-    await execCommand('git', ['clone', url, targetDir]);
+    try {
+      await execCommand('git', ['clone', url, targetDir]);
+    } catch (error) {
+      rethrowAsUnavailableIfMatch(error, repoUrl);
+    }
   }
 
   async pullRepository(repoDir: string): Promise<void> {
-    await execCommand('git', ['-C', repoDir, 'fetch', '--all']);
+    try {
+      await execCommand('git', ['-C', repoDir, 'fetch', '--all']);
+    } catch (error) {
+      rethrowAsUnavailableIfMatch(error, repoDir);
+    }
     try {
       await execCommand('git', ['-C', repoDir, 'pull', '--ff-only']);
     } catch (error) {

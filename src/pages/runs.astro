@@ -29,7 +29,7 @@ try {
         </div>
         <p><strong>Started:</strong> {new Date(run.started_at).toLocaleString()}</p>
         {run.completed_at && <p><strong>Completed:</strong> {new Date(run.completed_at).toLocaleString()}</p>}
-        <p><strong>Mode:</strong> {run.backup_mode} | <strong>Total:</strong> {run.repos_total} | <strong>Success:</strong> {run.repos_success} | <strong>Failed:</strong> {run.repos_failed}</p>
+        <p><strong>Mode:</strong> {run.backup_mode} | <strong>Total:</strong> {run.repos_total} | <strong>Success:</strong> {run.repos_success} | <strong>Failed:</strong> {run.repos_failed} | <strong>Unavailable:</strong> {run.repos_unavailable ?? 0}</p>
         {run.error_summary && <p style="color: #721c24; margin-top: 0.5rem;"><strong>Errors:</strong> {run.error_summary}</p>}
       </div>
     ))

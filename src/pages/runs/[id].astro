@@ -30,7 +30,7 @@ if (Number.isFinite(id) && id > 0) {
         <p><strong>Mode:</strong> {run.backup_mode}</p>
         <p><strong>Started:</strong> {new Date(run.started_at).toLocaleString()}</p>
         {run.completed_at && <p><strong>Completed:</strong> {new Date(run.completed_at).toLocaleString()}</p>}
-        <p><strong>Total:</strong> {run.repos_total} | <strong>Success:</strong> {run.repos_success} | <strong>Failed:</strong> {run.repos_failed}</p>
+        <p><strong>Total:</strong> {run.repos_total} | <strong>Success:</strong> {run.repos_success} | <strong>Failed:</strong> {run.repos_failed} | <strong>Unavailable:</strong> {run.repos_unavailable ?? 0}</p>
         {run.error_summary && <pre style="background:#f8f9fa; padding:0.75rem; border-radius:4px; white-space:pre-wrap;">{run.error_summary}</pre>}
       </div>
       <div class="card">

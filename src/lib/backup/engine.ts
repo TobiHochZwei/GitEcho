@@ -11,6 +11,7 @@ import {
   upsertRepository,
 } from '../database';
 import { runDiscovery } from '../discovery';
+import { isUpstreamUnavailable } from '../plugins/errors';
 import type { RepositoryInfo, ProviderPlugin } from '../plugins/interface';
 import { backupOption1 } from './option1';
 import { backupOption2 } from './option2';
@@ -23,7 +24,9 @@ export interface BackupResult {
   totalRepos: number;
   successCount: number;
   failedCount: number;
+  unavailableCount: number;
   failures: Array<{ repo: string; error: string }>;
+  unavailable: Array<{ repo: string; url: string; error: string }>;
   backupMode: string;
 }
 
@@ -38,8 +41,10 @@ export async function runBackup(): Promise<BackupResult> {
   const startedAt = run.started_at;
 
   const failures: Array<{ repo: string; error: string }> = [];
+  const unavailable: Array<{ repo: string; url: string; error: string }> = [];
   let successCount = 0;
   let failedCount = 0;
+  let unavailableCount = 0;
 
   // Discover repositories from all configured plugins via the shared pipeline.
   // This also persists new repos, applies filters, optionally appends to
@@ -81,6 +86,16 @@ export async function runBackup(): Promise<BackupResult> {
             completed_at: new Date().toISOString(),
           });
           console.log(`[backup] ✓ ${repoLabel}`);
+        } else if (result.unavailable) {
+          unavailableCount++;
+          unavailable.push({ repo: repoLabel, url: repo.url, error: result.error ?? 'Unknown error' });
+          updateRepositorySync(dbRepo.id, 'unavailable', result.error);
+          updateBackupItem(item.id, {
+            status: 'unavailable',
+            error: result.error ?? null,
+            completed_at: new Date().toISOString(),
+          });
+          console.warn(`[backup] ⚠ ${repoLabel} unavailable: ${result.error}`);
         } else {
           failedCount++;
           failures.push({ repo: repoLabel, error: result.error ?? 'Unknown error' });
@@ -108,6 +123,16 @@ export async function runBackup(): Promise<BackupResult> {
             completed_at: new Date().toISOString(),
           });
           console.log(`[backup] ✓ ${repoLabel}${result.zipPath ? ' (new snapshot)' : ' (unchanged)'}`);
+        } else if (result.unavailable) {
+          unavailableCount++;
+          unavailable.push({ repo: repoLabel, url: repo.url, error: result.error ?? 'Unknown error' });
+          updateRepositorySync(dbRepo.id, 'unavailable', result.error);
+          updateBackupItem(item.id, {
+            status: 'unavailable',
+            error: result.error ?? null,
+            completed_at: new Date().toISOString(),
+          });
+          console.warn(`[backup] ⚠ ${repoLabel} unavailable: ${result.error}`);
         } else {
           failedCount++;
           failures.push({ repo: repoLabel, error: result.error ?? 'Unknown error' });
@@ -122,34 +147,56 @@ export async function runBackup(): Promise<BackupResult> {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      failedCount++;
-      failures.push({ repo: repoLabel, error: message });
-      updateRepositorySync(dbRepo.id, 'failed', message);
-      updateBackupItem(item.id, {
-        status: 'failed',
-        error: message,
-        completed_at: new Date().toISOString(),
-      });
-      console.error(`[backup] ✗ ${repoLabel}: ${message}`);
+      if (isUpstreamUnavailable(err)) {
+        unavailableCount++;
+        unavailable.push({ repo: repoLabel, url: repo.url, error: message });
+        updateRepositorySync(dbRepo.id, 'unavailable', message);
+        updateBackupItem(item.id, {
+          status: 'unavailable',
+          error: message,
+          completed_at: new Date().toISOString(),
+        });
+        console.warn(`[backup] ⚠ ${repoLabel} unavailable: ${message}`);
+      } else {
+        failedCount++;
+        failures.push({ repo: repoLabel, error: message });
+        updateRepositorySync(dbRepo.id, 'failed', message);
+        updateBackupItem(item.id, {
+          status: 'failed',
+          error: message,
+          completed_at: new Date().toISOString(),
+        });
+        console.error(`[backup] ✗ ${repoLabel}: ${message}`);
+      }
     }
   }
 
   // Finalize the backup run
   const completedAt = new Date().toISOString();
-  const errorSummary = failures.length > 0
-    ? failures.map((f) => `${f.repo}: ${f.error}`).join('\n')
-    : null;
+  const errorParts: string[] = [];
+  if (failures.length > 0) {
+    errorParts.push(failures.map((f) => `${f.repo}: ${f.error}`).join('\n'));
+  }
+  if (unavailable.length > 0) {
+    errorParts.push(
+      `Unavailable upstream:\n` + unavailable.map((u) => `${u.repo}: ${u.error}`).join('\n'),
+    );
+  }
+  const errorSummary = errorParts.length > 0 ? errorParts.join('\n\n') : null;
 
   updateBackupRun(run.id, {
     completed_at: completedAt,
-    status: failedCount === 0 ? 'success' : 'partial_failure',
+    status: failedCount === 0 && unavailableCount === 0 ? 'success' : 'partial_failure',
     repos_total: allRepos.length,
     repos_success: successCount,
     repos_failed: failedCount,
+    repos_unavailable: unavailableCount,
     error_summary: errorSummary,
   });
 
-  console.log(`[backup] Completed: ${successCount}/${allRepos.length} succeeded, ${failedCount} failed`);
+  console.log(
+    `[backup] Completed: ${successCount}/${allRepos.length} succeeded, ${failedCount} failed, ${unavailableCount} unavailable`,
+  );
 
   return {
     runId: run.id,
@@ -158,7 +205,9 @@ export async function runBackup(): Promise<BackupResult> {
     totalRepos: allRepos.length,
     successCount,
     failedCount,
+    unavailableCount,
     failures,
+    unavailable,
     backupMode,
   };
 }

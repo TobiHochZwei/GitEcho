@@ -1,7 +1,12 @@
 import { schedule as cronSchedule, validate as cronValidate, type ScheduledTask } from 'node-cron';
 import { getConfig } from './config.js';
 import { runBackup } from './backup/engine.js';
-import { notifyBackupSuccess, notifyCriticalError, checkAndNotifyPatExpiry } from './smtp.js';
+import {
+  notifyBackupSuccess,
+  notifyCriticalError,
+  notifyUnavailableRepos,
+  checkAndNotifyPatExpiry,
+} from './smtp.js';
 import type { BackupSummary } from './smtp.js';
 import { tryAcquireBackupLock } from './backup-lock.js';
 
@@ -27,7 +32,10 @@ export async function executeBackupCycle(): Promise<void> {
 
     const result = await runBackup();
 
-    console.log(`[Scheduler] Backup complete: ${result.successCount}/${result.totalRepos} repos succeeded`);
+    console.log(
+      `[Scheduler] Backup complete: ${result.successCount}/${result.totalRepos} repos succeeded, ` +
+        `${result.unavailableCount} unavailable`,
+    );
 
     const summary: BackupSummary = {
       startedAt: result.startedAt,
@@ -39,6 +47,12 @@ export async function executeBackupCycle(): Promise<void> {
       backupMode: result.backupMode,
       failures: result.failures,
     };
+
+    // Always emit a single summary email when any upstream repos became
+    // unreachable during this run — independent of NOTIFY_ON_SUCCESS.
+    if (result.unavailable.length > 0) {
+      await notifyUnavailableRepos(result.unavailable);
+    }
 
     if (result.failedCount > 0 && result.successCount === 0) {
       await notifyCriticalError(

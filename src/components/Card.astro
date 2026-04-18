@@ -1,0 +1,22 @@
+---
+interface Props {
+  title?: string;
+  icon?: string;
+  variant?: 'default' | 'primary' | 'success' | 'danger' | 'warning' | 'info';
+  bodyClass?: string;
+  noBody?: boolean;
+}
+const { title, icon, variant = 'default', bodyClass = '', noBody = false } = Astro.props;
+const headerClass = variant === 'default' ? '' : `text-bg-${variant}`;
+---
+<div class="card shadow-sm mb-3">
+  {title && (
+    <div class={`card-header ${headerClass}`}>
+      <h5 class="card-title mb-0">
+        {icon && <i class={`bi ${icon} me-2`}></i>}
+        {title}
+      </h5>
+    </div>
+  )}
+  {noBody ? <slot /> : <div class={`card-body ${bodyClass}`}><slot /></div>}
+</div>

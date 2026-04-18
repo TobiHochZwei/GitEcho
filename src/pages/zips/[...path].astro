@@ -1,16 +1,20 @@
 ---
 import Layout from '../../layouts/Layout.astro';
+import Card from '../../components/Card.astro';
 import { loadConfig } from '../../lib/config.js';
 import { initDatabase } from '../../lib/database.js';
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-let config;
+let config: any;
 try {
   config = loadConfig();
   initDatabase(config.dataDir);
 } catch (e) {
-  config = { backupsDir: '/backups' };
+  config = {
+    backupsDir: process.env.BACKUPS_DIR ?? '/backups',
+    dataDir: process.env.DATA_DIR ?? '/data',
+  };
 }
 
 const pathSegments = Astro.params.path || '';
@@ -22,10 +26,6 @@ const repoName = parts[2] || '';
 const repoDir = join(config.backupsDir, provider, owner, repoName);
 const option3ZipsDir = join(repoDir, 'zips');
 
-// Resolve the directory that holds the .zip files. option3 stores them in
-// a `zips/` subfolder so the mirror clone (`clone/`) can sit next to them.
-// option2 keeps the legacy flat layout. Prefer the option3 layout when it
-// exists so the page works for both.
 let zipsDir: string | null = null;
 let zipsRelative = '';
 if (existsSync(option3ZipsDir)) {
@@ -44,39 +44,59 @@ if (!zipsDir) {
 } else {
   const items = readdirSync(zipsDir);
   zips = items
-    .filter(name => name.endsWith('.zip'))
-    .map(name => {
+    .filter((name) => name.endsWith('.zip'))
+    .map((name) => {
       const stat = statSync(join(zipsDir!, name));
       return { name, size: stat.size, date: stat.mtime };
     })
     .sort((a, b) => b.date.getTime() - a.date.getTime());
 }
+
+const totalSize = zips.reduce((acc, z) => acc + z.size, 0);
+function fmtMB(b: number): string { return `${(b / 1024 / 1024).toFixed(2)} MB`; }
 ---
-<Layout title={`GitEcho - Archives ${owner}/${repoName}`}>
-  <a href="/repos" class="btn btn-sm" style="margin-bottom: 1rem; display: inline-block;">← Back to Repos</a>
-  <h1 style="margin-bottom: 1.5rem;">{owner}/{repoName} — ZIP Archives</h1>
-  
+<Layout
+  title={`GitEcho — Archives ${owner}/${repoName}`}
+  active="repos"
+  pageTitle={`${owner}/${repoName} — ZIP Archives`}
+  breadcrumbs={[
+    { label: 'Home', href: '/' },
+    { label: 'Repositories', href: '/repos' },
+    { label: `${owner}/${repoName}` },
+  ]}
+>
   {error ? (
-    <div class="card"><p>{error}</p></div>
+    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle-fill me-2"></i>{error}</div>
   ) : zips.length === 0 ? (
-    <div class="card"><p>No ZIP archives found yet. Run a backup first.</p></div>
+    <div class="alert alert-info"><i class="bi bi-info-circle me-2"></i>No ZIP archives found yet. Run a backup first.</div>
   ) : (
-    <div class="card">
-      <table>
-        <thead>
-          <tr><th>Archive</th><th>Size</th><th>Date</th><th>Action</th></tr>
-        </thead>
-        <tbody>
-          {zips.map(zip => (
+    <Card title={`${zips.length} archive${zips.length === 1 ? '' : 's'} · ${fmtMB(totalSize)} total`} icon="bi-file-earmark-zip">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
             <tr>
-              <td>📦 {zip.name}</td>
-              <td>{(zip.size / 1024 / 1024).toFixed(2)} MB</td>
-              <td>{zip.date.toLocaleString()}</td>
-              <td><a href={`/api/download?path=${encodeURIComponent(`${zipsRelative}/${zip.name}`)}&file=true`} class="btn btn-sm">⬇️ Download</a></td>
+              <th>Archive</th>
+              <th class="text-end" style="width:8rem;">Size</th>
+              <th style="width:14rem;">Created</th>
+              <th class="text-end" style="width:10rem;">Action</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {zips.map((zip) => (
+              <tr>
+                <td><i class="bi bi-file-earmark-zip me-2 text-secondary"></i><span class="font-monospace small">{zip.name}</span></td>
+                <td class="text-end font-monospace small">{fmtMB(zip.size)}</td>
+                <td class="small">{zip.date.toLocaleString()}</td>
+                <td class="text-end">
+                  <a href={`/api/download?path=${encodeURIComponent(`${zipsRelative}/${zip.name}`)}&file=true`} class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-download me-1"></i>Download
+                  </a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   )}
 </Layout>

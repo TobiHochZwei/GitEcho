@@ -1,62 +1,131 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import Card from '../components/Card.astro';
 import { loadConfig } from '../lib/config.js';
 import { initDatabase, getRepositories } from '../lib/database.js';
 
-let repos: any[], config: any;
+let repos: any[] = [];
+let config: any;
+let loadError: string | null = null;
 try {
   config = loadConfig();
   initDatabase(config.dataDir);
   repos = getRepositories();
 } catch (e) {
-  repos = [];
+  loadError = (e as Error).message;
   config = { backupMode: 'option1' };
 }
+
+const counts = {
+  total: repos.length,
+  github: repos.filter((r) => r.provider === 'github').length,
+  azure: repos.filter((r) => r.provider === 'azuredevops').length,
+  failed: repos.filter((r) => r.last_sync_status === 'failed').length,
+};
+
+function statusVariant(s: string | null): string {
+  switch (s) {
+    case 'success': return 'success';
+    case 'failed': return 'danger';
+    case 'unavailable': return 'warning';
+    case 'running': return 'info';
+    default: return 'secondary';
+  }
+}
 ---
-<Layout title="GitEcho - Repositories">
-  <h1 style="margin-bottom: 1.5rem;">Repositories ({repos.length})</h1>
-  
-  {repos.length === 0 ? (
-    <div class="card">
-      <p>No repositories found. Configure your providers and run a backup.</p>
-    </div>
-  ) : (
-    <div class="card">
-      <table>
-        <thead>
-          <tr>
-            <th>Repository</th>
-            <th>Provider</th>
-            <th>Last Sync</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {repos.map(repo => (
-            <tr>
-              <td>
-                <strong>{repo.owner}/{repo.name}</strong>
-                <br/><small style="color: #666;">{repo.url}</small>
-              </td>
-              <td>{repo.provider === 'github' ? '🐙 GitHub' : '🔷 Azure DevOps'}</td>
-              <td>{repo.last_sync_at ? new Date(repo.last_sync_at).toLocaleString() : 'Never'}</td>
-              <td>
-                <span class={`status-badge status-${repo.last_sync_status || 'pending'}`}>
-                  {repo.last_sync_status || 'pending'}
-                </span>
-              </td>
-              <td>
-                {config.backupMode === 'option1' ? (
-                  <a href={`/browse/${repo.provider}/${repo.owner}/${repo.name}`} class="btn btn-sm">Browse</a>
-                ) : (
-                  <a href={`/zips/${repo.provider}/${repo.owner}/${repo.name}`} class="btn btn-sm">ZIP Archives</a>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+<Layout
+  title="GitEcho — Repositories"
+  active="repos"
+  pageTitle="Repositories"
+  breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Repositories' }]}
+>
+  {loadError && (
+    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle-fill me-2"></i>{loadError}</div>
   )}
+
+  <div class="row mb-3">
+    <div class="col-6 col-md-3"><div class="card text-center p-3"><div class="text-secondary small">Total</div><div class="fs-3 fw-semibold">{counts.total}</div></div></div>
+    <div class="col-6 col-md-3"><div class="card text-center p-3"><div class="text-secondary small"><i class="bi bi-github me-1"></i>GitHub</div><div class="fs-3 fw-semibold">{counts.github}</div></div></div>
+    <div class="col-6 col-md-3"><div class="card text-center p-3"><div class="text-secondary small"><i class="bi bi-microsoft me-1"></i>Azure DevOps</div><div class="fs-3 fw-semibold">{counts.azure}</div></div></div>
+    <div class="col-6 col-md-3"><div class="card text-center p-3"><div class="text-secondary small">Failed last sync</div><div class={`fs-3 fw-semibold ${counts.failed > 0 ? 'text-danger' : ''}`}>{counts.failed}</div></div></div>
+  </div>
+
+  <Card title={`Configured repositories (${repos.length})`} icon="bi-list-ul">
+    {repos.length === 0 ? (
+      <div class="text-center text-secondary py-5">
+        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+        <p class="mb-2">No repositories yet.</p>
+        <a href="/settings/repos" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>Add a repository</a>
+      </div>
+    ) : (
+      <>
+        <div class="input-group mb-3">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input id="repo-filter" type="search" class="form-control" placeholder="Filter by name, owner, URL…" autocomplete="off" />
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead>
+              <tr>
+                <th>Repository</th>
+                <th>Provider</th>
+                <th>Last sync</th>
+                <th>Status</th>
+                <th class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="repo-tbody">
+              {repos.map((repo: any) => (
+                <tr data-search={`${repo.owner} ${repo.name} ${repo.url}`.toLowerCase()}>
+                  <td>
+                    <div class="fw-semibold">{repo.owner}/{repo.name}</div>
+                    <div class="text-secondary small text-truncate" style="max-width: 480px;">{repo.url}</div>
+                    {repo.last_error && <div class="text-danger small mt-1"><i class="bi bi-exclamation-circle me-1"></i>{repo.last_error}</div>}
+                  </td>
+                  <td>
+                    {repo.provider === 'github'
+                      ? <span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub</span>
+                      : <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps</span>}
+                  </td>
+                  <td class="small">{repo.last_sync_at ? new Date(repo.last_sync_at).toLocaleString() : <span class="text-secondary">Never</span>}</td>
+                  <td>
+                    <span class={`badge text-bg-${statusVariant(repo.last_sync_status)}`}>
+                      {repo.last_sync_status || 'pending'}
+                    </span>
+                  </td>
+                  <td class="text-end">
+                    {config.backupMode === 'option3' ? (
+                      <a href={`/zips/${repo.provider}/${repo.owner}/${repo.name}`} class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-file-earmark-zip me-1"></i>ZIPs
+                      </a>
+                    ) : config.backupMode === 'option2' ? (
+                      <a href={`/zips/${repo.provider}/${repo.owner}/${repo.name}`} class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-file-earmark-zip me-1"></i>ZIPs
+                      </a>
+                    ) : (
+                      <a href={`/browse/${repo.provider}/${repo.owner}/${repo.name}`} class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-folder2-open me-1"></i>Browse
+                      </a>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>
+    )}
+  </Card>
 </Layout>
+
+<script>
+  const filter = document.getElementById('repo-filter') as HTMLInputElement | null;
+  const tbody = document.getElementById('repo-tbody');
+  filter?.addEventListener('input', () => {
+    const q = filter.value.trim().toLowerCase();
+    tbody?.querySelectorAll<HTMLTableRowElement>('tr[data-search]').forEach((tr) => {
+      const haystack = tr.dataset.search || '';
+      tr.hidden = q !== '' && !haystack.includes(q);
+    });
+  });
+</script>

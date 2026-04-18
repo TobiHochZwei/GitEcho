@@ -1,0 +1,60 @@
+---
+interface Props {
+  value: string | number;
+  label: string;
+  icon?: string;
+  variant?: 'primary' | 'success' | 'danger' | 'warning' | 'info' | 'secondary';
+  href?: string;
+  footer?: string;
+}
+const { value, label, icon = 'bi-bar-chart', variant = 'primary', href, footer } = Astro.props;
+---
+<div class={`small-box text-bg-${variant}`}>
+  <div class="inner p-3">
+    <h3 class="mb-1">{value}</h3>
+    <p class="mb-0">{label}</p>
+  </div>
+  <span class="small-box-icon"><i class={`bi ${icon}`}></i></span>
+  {href && (
+    <a href={href} class="small-box-footer">
+      {footer || 'More info'} <i class="bi bi-arrow-right-circle"></i>
+    </a>
+  )}
+</div>
+
+<style>
+  .small-box {
+    position: relative;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    transition: transform 0.15s ease;
+  }
+  .small-box:hover { transform: translateY(-2px); }
+  .small-box .inner h3 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+  .small-box .small-box-icon {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.75rem;
+    font-size: 3rem;
+    opacity: 0.35;
+    line-height: 1;
+    transition: transform 0.2s ease;
+  }
+  .small-box:hover .small-box-icon { transform: scale(1.15) rotate(-5deg); }
+  .small-box .small-box-footer {
+    display: block;
+    padding: 0.5rem 0.75rem;
+    background: rgba(0, 0, 0, 0.15);
+    color: inherit;
+    text-decoration: none;
+    text-align: center;
+    font-size: 0.85rem;
+  }
+  .small-box .small-box-footer:hover { background: rgba(0, 0, 0, 0.25); }
+</style>

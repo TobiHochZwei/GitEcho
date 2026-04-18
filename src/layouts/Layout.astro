@@ -1,93 +1,106 @@
 ---
+import 'bootstrap/dist/css/bootstrap.min.css';
+import 'bootstrap-icons/font/bootstrap-icons.css';
+import 'admin-lte/dist/css/adminlte.min.css';
+
+import Sidebar from '../components/Sidebar.astro';
+import Topbar from '../components/Topbar.astro';
+import Toasts from '../components/Toasts.astro';
+
+interface Crumb { label: string; href?: string; }
 interface Props {
   title: string;
-  bgColor?: string;
+  active?: 'dashboard' | 'repos' | 'runs' | 'settings';
+  settingsActive?: 'index' | 'general' | 'providers' | 'repos' | 'smtp' | null;
+  breadcrumbs?: Crumb[];
+  pageTitle?: string;
+  /** Visual health hint: 'success' (green border) or 'danger' (red border). */
+  health?: 'success' | 'danger' | null;
+  backupMode?: string;
 }
-const { title, bgColor = '#ffffff' } = Astro.props;
+const {
+  title,
+  active,
+  settingsActive = null,
+  breadcrumbs = [],
+  pageTitle = '',
+  health = null,
+  backupMode = '',
+} = Astro.props;
+
+const user = process.env.UI_USER || null;
 ---
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
   <title>{title}</title>
-  <style define:vars={{ bgColor }}>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background-color: var(--bgColor);
-      color: #1a1a2e;
-      min-height: 100vh;
-    }
-    nav {
-      background: #1a1a2e;
-      color: white;
-      padding: 1rem 2rem;
-      display: flex;
-      align-items: center;
-      gap: 2rem;
-    }
-    nav a {
-      color: #a0a0c0;
-      text-decoration: none;
-      font-size: 0.9rem;
-    }
-    nav a:hover, nav a.active { color: white; }
-    nav .logo {
-      font-size: 1.4rem;
-      font-weight: bold;
-      color: white;
-      margin-right: auto;
-    }
-    main { padding: 2rem; max-width: 1200px; margin: 0 auto; }
-    .card {
-      background: white;
-      border-radius: 8px;
-      padding: 1.5rem;
-      margin-bottom: 1rem;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    .status-badge {
-      display: inline-block;
-      padding: 0.25rem 0.75rem;
-      border-radius: 12px;
-      font-size: 0.8rem;
-      font-weight: 600;
-    }
-    .status-success { background: #d4edda; color: #155724; }
-    .status-failed { background: #f8d7da; color: #721c24; }
-    .status-unavailable { background: #ffe2c7; color: #8a3f00; }
-    .status-pending { background: #fff3cd; color: #856404; }
-    .status-running { background: #cce5ff; color: #004085; }
-    .status-partial_failure { background: #fff3cd; color: #856404; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #eee; }
-    th { font-weight: 600; color: #555; font-size: 0.85rem; text-transform: uppercase; }
-    .btn {
-      display: inline-block;
-      padding: 0.5rem 1rem;
-      background: #1a1a2e;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      text-decoration: none;
-      font-size: 0.85rem;
-    }
-    .btn:hover { background: #2a2a4e; }
-    .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
-  </style>
 </head>
-<body>
-  <nav>
-    <span class="logo">🔄 GitEcho</span>
-    <a href="/">Dashboard</a>
-    <a href="/repos">Repositories</a>
-    <a href="/runs">Backup Runs</a>
-    <a href="/settings">Settings</a>
-  </nav>
-  <main>
-    <slot />
-  </main>
+<body class="layout-fixed sidebar-expand-lg bg-body-tertiary">
+  <div class="app-wrapper d-flex">
+    <Sidebar active={active} settingsActive={settingsActive} backupMode={backupMode} />
+
+    <div class="app-main flex-grow-1 d-flex flex-column min-vh-100" style="min-width:0;">
+      <Topbar title={pageTitle} breadcrumbs={breadcrumbs} user={user} />
+
+      {health && (
+        <div class={`health-accent health-${health}`}>
+          {health === 'success'
+            ? <span><i class="bi bi-check-circle-fill me-1"></i>Backups up to date</span>
+            : <span><i class="bi bi-exclamation-triangle-fill me-1"></i>No successful backup in the last 24 hours</span>}
+        </div>
+      )}
+
+      <main class="app-content p-3 p-md-4 flex-grow-1">
+        <slot />
+      </main>
+
+      <footer class="app-footer text-center text-secondary small py-3 border-top">
+        <span>GitEcho — repository backups for GitHub &amp; Azure DevOps</span>
+      </footer>
+    </div>
+  </div>
+
+  <Toasts />
+
+  <style is:global>
+    html, body { height: 100%; }
+    body { overflow-x: hidden; }
+    .app-wrapper { width: 100%; }
+    .app-main { background-color: var(--bs-body-bg); }
+    .health-accent {
+      padding: 0.5rem 1rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+      border-bottom: 3px solid;
+    }
+    .health-success {
+      background: rgba(25, 135, 84, 0.1);
+      color: var(--bs-success-text-emphasis);
+      border-color: var(--bs-success);
+    }
+    .health-danger {
+      background: rgba(220, 53, 69, 0.12);
+      color: var(--bs-danger-text-emphasis);
+      border-color: var(--bs-danger);
+    }
+    [data-bs-theme="dark"] .health-success { background: rgba(25, 135, 84, 0.18); }
+    [data-bs-theme="dark"] .health-danger { background: rgba(220, 53, 69, 0.2); }
+
+    /* Better defaults */
+    .table > :not(caption) > * > * { vertical-align: middle; }
+    pre code { color: inherit; }
+    code { color: var(--bs-pink); background: var(--bs-tertiary-bg); padding: 0.1rem 0.35rem; border-radius: 3px; }
+    pre code { background: transparent; padding: 0; }
+  </style>
+
+  <script>
+    import 'bootstrap/dist/js/bootstrap.bundle.min.js';
+    import '../scripts/theme.ts';
+    import '../scripts/sidebar.ts';
+    import '../scripts/toasts.ts';
+  </script>
 </body>
 </html>

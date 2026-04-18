@@ -1,5 +1,6 @@
 ---
 import Layout from '../../layouts/Layout.astro';
+import Card from '../../components/Card.astro';
 import { loadConfig } from '../../lib/config.js';
 import { initDatabase, getBackupItems, getBackupRuns, getRepository } from '../../lib/database.js';
 
@@ -18,44 +19,103 @@ if (Number.isFinite(id) && id > 0) {
     }));
   }
 }
+
+function statusVariant(s: string): string {
+  switch (s) {
+    case 'success': return 'success';
+    case 'failed': return 'danger';
+    case 'running': return 'info';
+    case 'partial': return 'warning';
+    case 'partial_failure': return 'warning';
+    case 'unavailable': return 'warning';
+    default: return 'secondary';
+  }
+}
+
+function duration(start: string | null, end: string | null): string {
+  if (!start || !end) return '—';
+  const ms = new Date(end).getTime() - new Date(start).getTime();
+  if (ms < 1000) return `${ms} ms`;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${s % 60}s`;
+}
 ---
-<Layout title={`GitEcho - Run #${id}`}>
-  <a href="/runs" class="btn btn-sm" style="margin-bottom:1rem; display:inline-block;">← Backup Runs</a>
+<Layout
+  title={`GitEcho — Run #${id}`}
+  active="runs"
+  pageTitle={`Run #${id}`}
+  breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Backup Runs', href: '/runs' }, { label: `#${id}` }]}
+>
   {!run ? (
-    <div class="card"><p>Run #{id} not found.</p></div>
+    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle-fill me-2"></i>Run #{id} not found.</div>
   ) : (
     <>
-      <div class="card" style="margin-bottom:1rem;">
-        <h1 style="margin-bottom:0.5rem;">Run #{run.id} <span class={`status-badge status-${run.status}`}>{run.status}</span></h1>
-        <p><strong>Mode:</strong> {run.backup_mode}</p>
-        <p><strong>Started:</strong> {new Date(run.started_at).toLocaleString()}</p>
-        {run.completed_at && <p><strong>Completed:</strong> {new Date(run.completed_at).toLocaleString()}</p>}
-        <p><strong>Total:</strong> {run.repos_total} | <strong>Success:</strong> {run.repos_success} | <strong>Failed:</strong> {run.repos_failed} | <strong>Unavailable:</strong> {run.repos_unavailable ?? 0}</p>
-        {run.error_summary && <pre style="background:#f8f9fa; padding:0.75rem; border-radius:4px; white-space:pre-wrap;">{run.error_summary}</pre>}
-      </div>
-      <div class="card">
-        <h2>Per-repository results ({items.length})</h2>
-        <table>
-          <thead>
-            <tr><th>Repository</th><th>Status</th><th>Started</th><th>Completed</th><th>Details</th></tr>
-          </thead>
-          <tbody>
-            {items.map((it) => (
-              <tr>
-                <td>{it.repo ? `${it.repo.provider}/${it.repo.owner}/${it.repo.name}` : `#${it.repository_id}`}</td>
-                <td><span class={`status-badge status-${it.status}`}>{it.status}</span></td>
-                <td>{it.started_at ? new Date(it.started_at).toLocaleString() : '—'}</td>
-                <td>{it.completed_at ? new Date(it.completed_at).toLocaleString() : '—'}</td>
-                <td>
-                  {it.error && <div style="color:#cf222e; font-size:0.85em;">{it.error}</div>}
-                  {it.checksum && <div style="font-family:monospace; font-size:0.8em;">sha256: {it.checksum.slice(0, 16)}…</div>}
-                  {it.zip_path && <div style="font-size:0.85em;">ZIP: {it.zip_path}</div>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Card>
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+          <div>
+            <h3 class="mb-1">Run #{run.id}
+              <span class={`badge text-bg-${statusVariant(run.status)} ms-2`}>{run.status}</span>
+            </h3>
+            <p class="text-secondary small mb-0">
+              <i class="bi bi-clock me-1"></i>Started {new Date(run.started_at).toLocaleString()}
+              {run.completed_at && <> · completed {new Date(run.completed_at).toLocaleString()}</>}
+              · duration <strong>{duration(run.started_at, run.completed_at)}</strong>
+            </p>
+          </div>
+          <div class="d-flex gap-3 small">
+            <div><div class="text-secondary">Mode</div><div class="fw-semibold"><code>{run.backup_mode}</code></div></div>
+            <div><div class="text-secondary">Total</div><div class="fw-semibold">{run.repos_total}</div></div>
+            <div><div class="text-secondary">Success</div><div class="fw-semibold text-success">{run.repos_success}</div></div>
+            <div><div class="text-secondary">Failed</div><div class="fw-semibold text-danger">{run.repos_failed}</div></div>
+            <div><div class="text-secondary">Unavailable</div><div class="fw-semibold text-warning">{run.repos_unavailable ?? 0}</div></div>
+          </div>
+        </div>
+        {run.error_summary && (
+          <div class="alert alert-danger mt-3 mb-0">
+            <strong><i class="bi bi-exclamation-circle me-1"></i>Errors</strong>
+            <pre class="mb-0 mt-2 small" style="white-space: pre-wrap;">{run.error_summary}</pre>
+          </div>
+        )}
+      </Card>
+
+      <Card title={`Per-repository results (${items.length})`} icon="bi-list-task">
+        {items.length === 0 ? (
+          <p class="text-secondary mb-0">No per-repository entries.</p>
+        ) : (
+          <div class="table-responsive">
+            <table class="table table-hover align-middle">
+              <thead>
+                <tr>
+                  <th>Repository</th>
+                  <th>Status</th>
+                  <th>Duration</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it: any) => (
+                  <tr>
+                    <td>
+                      {it.repo
+                        ? <span><span class="text-secondary">{it.repo.provider}/</span><strong>{it.repo.owner}/{it.repo.name}</strong></span>
+                        : <code>#{it.repository_id}</code>}
+                    </td>
+                    <td><span class={`badge text-bg-${statusVariant(it.status)}`}>{it.status}</span></td>
+                    <td class="small text-secondary">{duration(it.started_at, it.completed_at)}</td>
+                    <td class="small">
+                      {it.error && <div class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>{it.error}</div>}
+                      {it.checksum && <div class="font-monospace text-secondary" title={it.checksum}>sha256: {it.checksum.slice(0, 16)}…</div>}
+                      {it.zip_path && <div class="text-secondary"><i class="bi bi-file-earmark-zip me-1"></i>{it.zip_path}</div>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </>
   )}
 </Layout>

@@ -1,37 +1,92 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import Card from '../components/Card.astro';
 import { loadConfig } from '../lib/config.js';
 import { initDatabase, getBackupRuns } from '../lib/database.js';
 
-let runs: any[], config: any;
+let runs: any[] = [];
+let loadError: string | null = null;
 try {
-  config = loadConfig();
-  initDatabase(config.dataDir);
-  runs = getBackupRuns(20);
+  const cfg = loadConfig();
+  initDatabase(cfg.dataDir);
+  runs = getBackupRuns(50);
 } catch (e) {
-  runs = [];
+  loadError = (e as Error).message;
+}
+
+function statusVariant(s: string): string {
+  switch (s) {
+    case 'success': return 'success';
+    case 'failed': return 'danger';
+    case 'running': return 'info';
+    case 'partial': return 'warning';
+    case 'partial_failure': return 'warning';
+    case 'unavailable': return 'warning';
+    default: return 'secondary';
+  }
+}
+
+function duration(start: string, end: string | null): string {
+  if (!end) return '—';
+  const ms = new Date(end).getTime() - new Date(start).getTime();
+  if (ms < 1000) return `${ms} ms`;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${s % 60}s`;
 }
 ---
-<Layout title="GitEcho - Backup Runs">
-  <h1 style="margin-bottom: 1.5rem;">Backup Runs</h1>
-  
-  {runs.length === 0 ? (
-    <div class="card"><p>No backup runs yet.</p></div>
-  ) : (
-    runs.map(run => (
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-          <h3>Run #{run.id}</h3>
-          <div style="display:flex; gap:0.5rem; align-items:center;">
-            <span class={`status-badge status-${run.status}`}>{run.status}</span>
-            <a class="btn btn-sm" href={`/runs/${run.id}`}>View details</a>
-          </div>
-        </div>
-        <p><strong>Started:</strong> {new Date(run.started_at).toLocaleString()}</p>
-        {run.completed_at && <p><strong>Completed:</strong> {new Date(run.completed_at).toLocaleString()}</p>}
-        <p><strong>Mode:</strong> {run.backup_mode} | <strong>Total:</strong> {run.repos_total} | <strong>Success:</strong> {run.repos_success} | <strong>Failed:</strong> {run.repos_failed} | <strong>Unavailable:</strong> {run.repos_unavailable ?? 0}</p>
-        {run.error_summary && <p style="color: #721c24; margin-top: 0.5rem;"><strong>Errors:</strong> {run.error_summary}</p>}
-      </div>
-    ))
+<Layout
+  title="GitEcho — Backup Runs"
+  active="runs"
+  pageTitle="Backup Runs"
+  breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Backup Runs' }]}
+>
+  {loadError && (
+    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle-fill me-2"></i>{loadError}</div>
   )}
+
+  <Card title={`Backup runs (showing ${runs.length})`} icon="bi-clock-history">
+    {runs.length === 0 ? (
+      <div class="text-center text-secondary py-5">
+        <i class="bi bi-clock-history fs-1 d-block mb-2"></i>
+        <p class="mb-0">No backup runs yet.</p>
+      </div>
+    ) : (
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Started</th>
+              <th>Duration</th>
+              <th>Status</th>
+              <th class="text-end">Total</th>
+              <th class="text-end">Success</th>
+              <th class="text-end">Failed</th>
+              <th class="text-end">Unavailable</th>
+              <th>Mode</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {runs.map((r: any) => (
+              <tr>
+                <td class="font-monospace">#{r.id}</td>
+                <td>{new Date(r.started_at).toLocaleString()}</td>
+                <td>{duration(r.started_at, r.completed_at)}</td>
+                <td><span class={`badge text-bg-${statusVariant(r.status)}`}>{r.status}</span></td>
+                <td class="text-end">{r.repos_total}</td>
+                <td class="text-end text-success">{r.repos_success}</td>
+                <td class="text-end text-danger">{r.repos_failed}</td>
+                <td class="text-end text-warning">{r.repos_unavailable ?? 0}</td>
+                <td><code>{r.backup_mode}</code></td>
+                <td class="text-end"><a class="btn btn-sm btn-outline-primary" href={`/runs/${r.id}`}>Details</a></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </Card>
 </Layout>

@@ -39,7 +39,7 @@ Create `.env.local` (loaded automatically by Astro, ignored by git):
 
 ```bash
 cat > .env.local <<'EOF'
-# Required: tells the app where to put state on the host
+# Optional: override the local defaults (.dev/data, .dev/config, .dev/backups)
 DATA_DIR=./.dev/data
 CONFIG_DIR=./.dev/config
 BACKUPS_DIR=./.dev/backups
@@ -89,6 +89,8 @@ npm run dev
 ```
 
 Serves the UI at <http://localhost:4321> with HMR. The dev server reads `.env.local` automatically.
+
+If you leave `DATA_DIR`, `CONFIG_DIR`, and `BACKUPS_DIR` unset, GitEcho defaults to `.dev/data`, `.dev/config`, and `.dev/backups` on local runs.
 
 When `UI_USER`/`UI_PASS` are set, the browser prompts for Basic Auth on the first request.
 
@@ -185,14 +187,22 @@ Restart `npm run worker:dev` afterwards so the database is recreated.
 
 ```
 src/
-  layouts/Layout.astro          shared HTML chrome + nav
+  layouts/Layout.astro          AdminLTE 4 shell (sidebar + topbar + dark mode)
   middleware.ts                 Basic Auth + cheap CSRF
+  components/                   reusable Astro components (Sidebar, Topbar,
+                                  SmallBox, Card, Toasts)
+  scripts/                      client-side TS bundled by Astro
+    theme.ts                    dark-mode toggle (data-bs-theme + localStorage)
+    sidebar.ts                  sidebar collapse + treeview
+    toasts.ts                   Bootstrap toast helper (window.gitechoToast)
+    format.ts                   shared formatters
   lib/
     config.ts                   layered loader (env < settings < secrets)
     secrets.ts                  AES-256-GCM helpers
     settings.ts                 settings.json + secrets.json read/write
     backup-lock.ts              cross-process file mutex
     database.ts                 SQLite schema + CRUD
+    stats.ts                    extended dashboard stats + storage usage
     scheduler.ts                node-cron entry point
     backup/engine.ts            the actual backup runner
     plugins/
@@ -201,11 +211,47 @@ src/
   pages/
     index.astro, repos.astro, runs.astro
     runs/[id].astro             per-run detail
+    browse/[...path].astro      file browser (option1)
+    zips/[...path].astro        ZIP archive list (option2/3)
     settings/                   settings UI pages
     api/                        JSON endpoints used by the UI
+                                  (incl. /api/storage, /api/logout)
 worker/index.ts                 worker process entry
 build-worker.mjs                esbuild bundle for the worker
 ```
+
+### UI / theme notes
+
+The web UI is built on **AdminLTE 4** (Bootstrap 5) and a small set of
+custom Astro components. Key conventions:
+
+- **Bootstrap & AdminLTE assets** are imported in
+  `src/layouts/Layout.astro` (`bootstrap/dist/css`, `admin-lte/dist/css`,
+  `bootstrap-icons/font`, plus `bootstrap.bundle.min.js` in a `<script>`
+  tag). Astro/Vite hashes and emits them under `dist/client/_astro/`, so
+  no CDN is needed at runtime.
+- **Dark mode** uses Bootstrap 5's `data-bs-theme` on `<html>`. The
+  toggle in the topbar persists the choice in `localStorage` under
+  `gitecho.theme`; first-visit defaults follow `prefers-color-scheme`.
+- **Toasts**: client code calls `import { toast } from 'src/scripts/toasts.ts'`
+  (or `window.gitechoToast(message, variant)`). Variants:
+  `success | danger | warning | info`. The container lives in
+  `src/components/Toasts.astro` and is rendered once per page by the
+  Layout.
+- **Adding a sidebar item**: edit `src/components/Sidebar.astro`. Each
+  `Layout` page sets `active="..."` (and optionally `settingsActive="..."`)
+  to highlight the current entry.
+- **Adding a dashboard widget**: extend `src/lib/stats.ts` with the data
+  you need, then drop a `<SmallBox>` or `<Card>` into the appropriate
+  row in `src/pages/index.astro`. For client-side charts, lazy-load
+  `chart.js/auto` inside a `<script>` block so it only loads on pages
+  that need it.
+- **Storage usage** (`/api/storage`) is cached for 5 min in-process to
+  avoid repeated `du`-style walks of `/backups`. Use `?force=1` to
+  recompute.
+- **AdminLTE version**: pinned to a v4 release candidate
+  (`admin-lte@4.0.0-rc7`). When bumping, sanity-check the sidebar and
+  small-box markup since the RC line is still evolving.
 
 ## 9. Troubleshooting
 

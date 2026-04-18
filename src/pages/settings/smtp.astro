@@ -1,5 +1,6 @@
 ---
 import Layout from '../../layouts/Layout.astro';
+import Card from '../../components/Card.astro';
 import { loadSettings } from '../../lib/settings.js';
 import { getConfig } from '../../lib/config.js';
 
@@ -16,40 +17,83 @@ const s = {
   patExpiryWarnDays: settings.patExpiryWarnDays ?? cfg.patExpiryWarnDays,
 };
 ---
-<Layout title="GitEcho - Settings · SMTP">
-  <a href="/settings" class="btn btn-sm" style="margin-bottom: 1rem; display: inline-block;">← Settings</a>
-  <h1 style="margin-bottom: 1rem;">SMTP / Notifications</h1>
-
-  <div class="card">
-    <form id="smtp-form" style="display:grid; gap:0.75rem;">
-      <label>Host <input name="host" value={s.host} placeholder="smtp.example.com" style="width:100%; padding:0.5rem;" /></label>
-      <label>Port <input name="port" type="number" min="1" value={s.port} style="padding:0.5rem; width:8rem;" /></label>
-      <label>User <input name="user" value={s.user} placeholder="alerts@example.com" style="width:100%; padding:0.5rem;" /></label>
-      <label>Password <input name="pass" type="password" autocomplete="off" placeholder={passStored ? '(stored — leave blank to keep)' : ''} style="width:100%; padding:0.5rem;" /></label>
-      <label>From <input name="from" value={s.from} placeholder="gitecho@example.com" style="width:100%; padding:0.5rem;" /></label>
-      <label>To <input name="to" value={s.to} placeholder="admin@example.com" style="width:100%; padding:0.5rem;" /></label>
-      <label style="display:flex; align-items:center; gap:0.5rem;">
-        <input type="checkbox" name="notifyOnSuccess" checked={s.notifyOnSuccess} />
-        Send email on successful backup runs
-      </label>
-      <label>PAT-expiry warn days <input name="patExpiryWarnDays" type="number" min="0" value={s.patExpiryWarnDays} style="padding:0.5rem; width:8rem;" /></label>
-      <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-        <button type="submit" class="btn">Save</button>
-        <button type="button" id="test-btn" class="btn btn-sm">Send test email</button>
-        {passStored && <button type="button" id="clear-pass" class="btn btn-sm">Remove stored password</button>}
+<Layout
+  title="GitEcho — Settings · SMTP"
+  active="settings"
+  settingsActive="smtp"
+  pageTitle="SMTP / Notifications"
+  breadcrumbs={[
+    { label: 'Home', href: '/' },
+    { label: 'Settings', href: '/settings' },
+    { label: 'SMTP' },
+  ]}
+>
+  <Card title="SMTP server" icon="bi-envelope-at">
+    <form id="smtp-form" class="row g-3">
+      <div class="col-12 col-md-8">
+        <label class="form-label">Host</label>
+        <input name="host" value={s.host} placeholder="smtp.example.com" class="form-control" />
       </div>
-      <p id="msg" style="min-height:1.2em;"></p>
+      <div class="col-12 col-md-4">
+        <label class="form-label">Port</label>
+        <input name="port" type="number" min="1" value={s.port} class="form-control" />
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label">Username</label>
+        <input name="user" value={s.user} placeholder="alerts@example.com" class="form-control" />
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label">Password</label>
+        <div class="input-group">
+          <input name="pass" type="password" autocomplete="off" placeholder={passStored ? '(stored — leave blank to keep)' : ''} class="form-control" />
+          <button type="button" class="btn btn-outline-secondary" data-toggle-pass><i class="bi bi-eye"></i></button>
+        </div>
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label">From</label>
+        <input name="from" value={s.from} placeholder="gitecho@example.com" class="form-control" />
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label">To</label>
+        <input name="to" value={s.to} placeholder="admin@example.com" class="form-control" />
+      </div>
+      <div class="col-12 col-md-6">
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="notifyOnSuccess" name="notifyOnSuccess" checked={s.notifyOnSuccess} />
+          <label class="form-check-label" for="notifyOnSuccess">Notify on successful backup runs</label>
+        </div>
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label">PAT-expiry warn (days)</label>
+        <input name="patExpiryWarnDays" type="number" min="0" value={s.patExpiryWarnDays} class="form-control" style="max-width:8rem;" />
+      </div>
+      <div class="col-12 d-flex gap-2 flex-wrap">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save</button>
+        <button type="button" id="test-btn" class="btn btn-outline-primary"><i class="bi bi-send me-1"></i>Send test email</button>
+        {passStored && <button type="button" id="clear-pass" class="btn btn-outline-danger"><i class="bi bi-trash me-1"></i>Remove stored password</button>}
+      </div>
     </form>
-  </div>
+  </Card>
 </Layout>
 
-<script is:inline>
-  const form = document.getElementById('smtp-form');
-  const msg = document.getElementById('msg');
+<script>
+  import { toast } from '../../scripts/toasts.ts';
 
-  function buildBody(extra = {}) {
+  const form = document.getElementById('smtp-form') as HTMLFormElement | null;
+
+  document.querySelectorAll<HTMLButtonElement>('[data-toggle-pass]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const input = btn.parentElement?.querySelector<HTMLInputElement>('input[name="pass"]');
+      if (!input) return;
+      input.type = input.type === 'password' ? 'text' : 'password';
+      btn.querySelector('i')!.className = input.type === 'password' ? 'bi bi-eye' : 'bi bi-eye-slash';
+    });
+  });
+
+  function buildBody(extra: Record<string, unknown> = {}) {
+    if (!form) return extra;
     const fd = new FormData(form);
-    const body = { ...extra };
+    const body: Record<string, unknown> = { ...extra };
     body.host = fd.get('host') || '';
     body.port = Number(fd.get('port')) || 587;
     body.user = fd.get('user') || '';
@@ -57,15 +101,13 @@ const s = {
     if (pass) body.pass = pass;
     body.from = fd.get('from') || '';
     body.to = fd.get('to') || '';
-    body.notifyOnSuccess = form.querySelector('[name="notifyOnSuccess"]').checked;
+    body.notifyOnSuccess = (form.querySelector('[name="notifyOnSuccess"]') as HTMLInputElement).checked;
     body.patExpiryWarnDays = Number(fd.get('patExpiryWarnDays')) || 0;
     return body;
   }
 
-  form.addEventListener('submit', async (e) => {
+  form?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    msg.style.color = '#666';
-    msg.textContent = 'Saving...';
     const res = await fetch('/api/settings/smtp', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -73,43 +115,34 @@ const s = {
     });
     const j = await res.json().catch(() => ({}));
     if (res.ok) {
-      msg.style.color = '#1a7f37';
-      msg.textContent = 'Saved.';
-      setTimeout(() => location.reload(), 600);
+      toast('SMTP settings saved', 'success');
+      setTimeout(() => location.reload(), 500);
     } else {
-      msg.style.color = '#cf222e';
-      msg.textContent = j.error || 'Failed';
+      toast(j.error || 'Failed to save', 'danger');
     }
   });
 
-  document.getElementById('test-btn').addEventListener('click', async () => {
-    msg.style.color = '#666';
-    msg.textContent = 'Sending test...';
+  document.getElementById('test-btn')?.addEventListener('click', async () => {
+    toast('Sending test email…', 'info');
     const res = await fetch('/api/test/smtp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildBody()),
     });
     const j = await res.json().catch(() => ({}));
-    if (res.ok) {
-      msg.style.color = '#1a7f37';
-      msg.textContent = '✓ ' + (j.message || 'Sent');
-    } else {
-      msg.style.color = '#cf222e';
-      msg.textContent = '✗ ' + (j.error || 'Failed');
-    }
+    toast(j.message || j.error || (res.ok ? 'Sent' : 'Failed'), res.ok ? 'success' : 'danger');
   });
 
-  const clearBtn = document.getElementById('clear-pass');
-  if (clearBtn) {
-    clearBtn.addEventListener('click', async () => {
-      if (!confirm('Remove the stored SMTP password?')) return;
-      const res = await fetch('/api/settings/smtp', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clearPass: true }),
-      });
-      if (res.ok) location.reload();
+  document.getElementById('clear-pass')?.addEventListener('click', async () => {
+    if (!confirm('Remove the stored SMTP password?')) return;
+    const res = await fetch('/api/settings/smtp', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clearPass: true }),
     });
-  }
+    if (res.ok) {
+      toast('Stored password removed', 'success');
+      setTimeout(() => location.reload(), 400);
+    }
+  });
 </script>

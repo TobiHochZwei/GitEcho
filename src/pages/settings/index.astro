@@ -4,40 +4,57 @@ import { isMasterKeyConfigured } from '../../lib/secrets.js';
 
 const masterKeyOk = isMasterKeyConfigured();
 const uiAuthOn = Boolean(process.env.UI_USER && process.env.UI_PASS);
----
-<Layout title="GitEcho - Settings">
-  <h1 style="margin-bottom: 1rem;">Settings</h1>
 
+const tiles = [
+  { href: '/settings/general', icon: 'bi-sliders', title: 'General', desc: 'Backup mode, cron schedule, manual trigger.', color: 'primary' },
+  { href: '/settings/providers', icon: 'bi-key', title: 'Providers', desc: 'GitHub & Azure DevOps PAT tokens, expirations, auto-discovery, test connections.', color: 'info' },
+  { href: '/settings/repos', icon: 'bi-list-ul', title: 'Repositories list', desc: 'Add or remove URLs in repos.txt.', color: 'success' },
+  { href: '/settings/smtp', icon: 'bi-envelope', title: 'SMTP / Notifications', desc: 'Email setup with a test-send button.', color: 'warning' },
+];
+---
+<Layout
+  title="GitEcho — Settings"
+  active="settings"
+  settingsActive="index"
+  pageTitle="Settings"
+  breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Settings' }]}
+>
   {!masterKeyOk && (
-    <div class="card" style="background:#fff3cd; border:1px solid #ffeeba; margin-bottom:1rem;">
-      <strong>⚠ MASTER_KEY is not set.</strong>
-      <p style="margin: 0.5rem 0 0;">PAT and SMTP-password fields cannot be saved through the UI until you set the <code>MASTER_KEY</code> environment variable. Generate one with <code>openssl rand -hex 32</code>.</p>
+    <div class="alert alert-warning d-flex align-items-start" role="alert">
+      <i class="bi bi-shield-exclamation me-2 fs-5"></i>
+      <div>
+        <strong>MASTER_KEY is not set.</strong>
+        <div class="small">PAT and SMTP-password fields cannot be saved through the UI until you set the <code>MASTER_KEY</code> environment variable. Generate one with <code>openssl rand -hex 32</code>.</div>
+      </div>
     </div>
   )}
 
   {!uiAuthOn && (
-    <div class="card" style="background:#f8d7da; border:1px solid #f5c6cb; margin-bottom:1rem;">
-      <strong>⚠ The web UI is not authenticated.</strong>
-      <p style="margin: 0.5rem 0 0;">Set <code>UI_USER</code> and <code>UI_PASS</code> environment variables to require HTTP Basic auth on every request.</p>
+    <div class="alert alert-danger d-flex align-items-start" role="alert">
+      <i class="bi bi-shield-x me-2 fs-5"></i>
+      <div>
+        <strong>The web UI is not authenticated.</strong>
+        <div class="small">Set <code>UI_USER</code> and <code>UI_PASS</code> environment variables to require HTTP Basic auth on every request.</div>
+      </div>
     </div>
   )}
 
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;">
-    <a href="/settings/repos" class="card" style="text-decoration:none; color:inherit;">
-      <h3>📂 Repositories</h3>
-      <p>Add or remove URLs in <code>repos.txt</code>.</p>
-    </a>
-    <a href="/settings/providers" class="card" style="text-decoration:none; color:inherit;">
-      <h3>🔑 Providers</h3>
-      <p>GitHub & Azure DevOps PAT tokens, expirations, auto-discovery, test connections.</p>
-    </a>
-    <a href="/settings/smtp" class="card" style="text-decoration:none; color:inherit;">
-      <h3>✉️ SMTP</h3>
-      <p>Email notification setup with a test-send button.</p>
-    </a>
-    <a href="/settings/general" class="card" style="text-decoration:none; color:inherit;">
-      <h3>⚙️ General</h3>
-      <p>Backup mode, cron schedule, manual trigger.</p>
-    </a>
+  <div class="row">
+    {tiles.map((t) => (
+      <div class="col-12 col-sm-6 col-lg-3">
+        <a href={t.href} class="card h-100 text-decoration-none text-reset shadow-sm setting-tile">
+          <div class="card-body text-center">
+            <div class={`display-5 mb-2 text-${t.color}`}><i class={`bi ${t.icon}`}></i></div>
+            <h5 class="card-title">{t.title}</h5>
+            <p class="card-text small text-secondary mb-0">{t.desc}</p>
+          </div>
+        </a>
+      </div>
+    ))}
   </div>
+
+  <style>
+    .setting-tile { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .setting-tile:hover { transform: translateY(-3px); box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.1) !important; }
+  </style>
 </Layout>

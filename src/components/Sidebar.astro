@@ -1,0 +1,186 @@
+---
+interface Props {
+  active?: 'dashboard' | 'repos' | 'runs' | 'settings';
+  settingsActive?: 'index' | 'general' | 'providers' | 'repos' | 'smtp' | null;
+  appVersion?: string;
+  backupMode?: string;
+}
+const { active, settingsActive = null, appVersion = '1.0.0', backupMode = '' } = Astro.props;
+const isSettings = active === 'settings';
+---
+<aside class="app-sidebar bg-body-secondary shadow" data-bs-theme="dark">
+  <div class="sidebar-brand">
+    <a href="/" class="brand-link">
+      <span class="brand-image opacity-75 me-2"><i class="bi bi-cloud-arrow-down-fill text-info fs-4"></i></span>
+      <span class="brand-text fw-light">GitEcho</span>
+    </a>
+  </div>
+
+  <div class="sidebar-wrapper">
+    <nav class="mt-2">
+      <ul
+        class="nav sidebar-menu flex-column"
+        data-lte-toggle="treeview"
+        role="menu"
+        data-accordion="false"
+      >
+        <li class="nav-item">
+          <a href="/" class={`nav-link ${active === 'dashboard' ? 'active' : ''}`}>
+            <i class="nav-icon bi bi-speedometer"></i>
+            <p>Dashboard</p>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="/repos" class={`nav-link ${active === 'repos' ? 'active' : ''}`}>
+            <i class="nav-icon bi bi-git"></i>
+            <p>Repositories</p>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="/runs" class={`nav-link ${active === 'runs' ? 'active' : ''}`}>
+            <i class="nav-icon bi bi-clock-history"></i>
+            <p>Backup Runs</p>
+          </a>
+        </li>
+        <li class={`nav-item ${isSettings ? 'menu-open' : ''}`}>
+          <a href="#" class={`nav-link ${isSettings ? 'active' : ''}`}>
+            <i class="nav-icon bi bi-gear"></i>
+            <p>
+              Settings
+              <i class="nav-arrow bi bi-chevron-right"></i>
+            </p>
+          </a>
+          <ul class="nav nav-treeview">
+            <li class="nav-item">
+              <a href="/settings" class={`nav-link ${settingsActive === 'index' ? 'active' : ''}`}>
+                <i class="nav-icon bi bi-circle"></i>
+                <p>Overview</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="/settings/general" class={`nav-link ${settingsActive === 'general' ? 'active' : ''}`}>
+                <i class="nav-icon bi bi-sliders"></i>
+                <p>General</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="/settings/providers" class={`nav-link ${settingsActive === 'providers' ? 'active' : ''}`}>
+                <i class="nav-icon bi bi-key"></i>
+                <p>Providers</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="/settings/repos" class={`nav-link ${settingsActive === 'repos' ? 'active' : ''}`}>
+                <i class="nav-icon bi bi-list-ul"></i>
+                <p>Repositories list</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="/settings/smtp" class={`nav-link ${settingsActive === 'smtp' ? 'active' : ''}`}>
+                <i class="nav-icon bi bi-envelope"></i>
+                <p>SMTP / Notifications</p>
+              </a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </div>
+
+  <div class="sidebar-footer p-3 small text-secondary border-top">
+    <div class="d-flex justify-content-between">
+      <span><i class="bi bi-tag me-1"></i>v{appVersion}</span>
+      {backupMode && <span class="badge text-bg-secondary">{backupMode}</span>}
+    </div>
+    <div class="mt-2">
+      <a href="https://github.com/tobiaswittenburg/GitEcho" target="_blank" rel="noopener" class="text-decoration-none link-secondary">
+        <i class="bi bi-github me-1"></i>Project on GitHub
+      </a>
+    </div>
+  </div>
+</aside>
+
+<style>
+  .app-sidebar {
+    width: 250px;
+    min-height: 100vh;
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar-brand {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .brand-link {
+    color: var(--bs-body-color);
+    text-decoration: none;
+    font-size: 1.25rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+  }
+  .sidebar-wrapper {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .sidebar-menu .nav-link {
+    color: rgba(255, 255, 255, 0.75);
+    padding: 0.6rem 1rem;
+    border-radius: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .sidebar-menu .nav-link p {
+    margin: 0;
+    flex: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .sidebar-menu .nav-link:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .sidebar-menu .nav-link.active {
+    color: #fff;
+    background: rgba(13, 110, 253, 0.25);
+    border-left: 3px solid var(--bs-info);
+  }
+  .sidebar-menu .nav-icon {
+    width: 1.25rem;
+    text-align: center;
+  }
+  .nav-treeview {
+    padding-left: 1.25rem;
+    display: none;
+  }
+  .menu-open > .nav-treeview {
+    display: block;
+  }
+  .nav-arrow {
+    transition: transform 0.2s;
+  }
+  .menu-open > .nav-link .nav-arrow {
+    transform: rotate(90deg);
+  }
+  .sidebar-footer {
+    border-color: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  /* Mobile: hide sidebar by default, show when body has .sidebar-open */
+  @media (max-width: 991.98px) {
+    .app-sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      transform: translateX(-100%);
+      transition: transform 0.2s ease;
+      z-index: 1040;
+    }
+    :global(body.sidebar-open) .app-sidebar {
+      transform: translateX(0);
+    }
+  }
+</style>

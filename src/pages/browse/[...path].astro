@@ -1,22 +1,25 @@
 ---
 import Layout from '../../layouts/Layout.astro';
+import Card from '../../components/Card.astro';
 import { loadConfig } from '../../lib/config.js';
 import { initDatabase } from '../../lib/database.js';
 import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs';
 import { join, basename, extname } from 'node:path';
 
-let config;
+let config: any;
 try {
   config = loadConfig();
   initDatabase(config.dataDir);
 } catch (e) {
-  config = { backupsDir: '/backups', backupMode: 'option1' };
+  config = {
+    backupsDir: process.env.BACKUPS_DIR ?? '/backups',
+    dataDir: process.env.DATA_DIR ?? '/data',
+    backupMode: 'option1',
+  };
 }
 
 const pathSegments = Astro.params.path || '';
 const parts = pathSegments.split('/');
-
-// Expected: provider/owner/repo/...rest
 const provider = parts[0] || '';
 const owner = parts[1] || '';
 const repoName = parts[2] || '';
@@ -39,15 +42,15 @@ if (!existsSync(repoRoot)) {
   if (stat.isDirectory()) {
     const items = readdirSync(fullPath);
     entries = items
-      .filter(name => !name.startsWith('.git') || name === '.gitignore')
-      .map(name => {
+      .filter((name) => !name.startsWith('.git') || name === '.gitignore')
+      .map((name) => {
         const itemPath = join(fullPath, name);
         const itemStat = statSync(itemPath);
         return {
           name,
           isDir: itemStat.isDirectory(),
           size: itemStat.size,
-          path: `${pathSegments}/${name}`.replace(/^\//, '')
+          path: `${pathSegments}/${name}`.replace(/^\//, ''),
         };
       })
       .sort((a, b) => {
@@ -64,63 +67,93 @@ if (!existsSync(repoRoot)) {
   }
 }
 
-const breadcrumbs = pathSegments ? pathSegments.split('/').map((seg: string, i: number, arr: string[]) => ({
-  name: seg,
-  path: arr.slice(0, i + 1).join('/')
-})) : [];
+const segs = pathSegments ? pathSegments.split('/') : [];
+const breadcrumbs = [
+  { label: 'Home', href: '/' },
+  { label: 'Repositories', href: '/repos' },
+  ...segs.map((seg, i) => ({
+    label: seg,
+    href: `/browse/${segs.slice(0, i + 1).join('/')}`,
+  })),
+];
+
+function fmtBytes(b: number): string {
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${(b / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function iconFor(name: string, isDir: boolean): string {
+  if (isDir) return 'bi-folder-fill text-warning';
+  const ext = name.split('.').pop()?.toLowerCase();
+  if (!ext) return 'bi-file-earmark';
+  if (['md', 'markdown'].includes(ext)) return 'bi-file-earmark-text text-info';
+  if (['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs'].includes(ext)) return 'bi-filetype-js text-warning';
+  if (['json'].includes(ext)) return 'bi-filetype-json';
+  if (['yml', 'yaml'].includes(ext)) return 'bi-filetype-yml';
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return 'bi-file-earmark-image text-success';
+  if (['zip', 'gz', 'tar'].includes(ext)) return 'bi-file-earmark-zip';
+  return 'bi-file-earmark';
+}
 ---
-<Layout title={`GitEcho - Browse ${owner}/${repoName}`}>
-  <div style="margin-bottom: 1rem;">
-    <a href="/repos" class="btn btn-sm" style="margin-right: 0.5rem;">← Back to Repos</a>
-    <a href={`/api/download?path=${encodeURIComponent(pathSegments)}`} class="btn btn-sm">📦 Download as ZIP</a>
+<Layout
+  title={`GitEcho — Browse ${owner}/${repoName}`}
+  active="repos"
+  pageTitle={`${owner}/${repoName}`}
+  breadcrumbs={breadcrumbs}
+>
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">
+      <i class="bi bi-folder2-open me-2 text-warning"></i>
+      <span class="text-secondary">{provider}/{owner}/</span>{repoName}{subPath && <span class="text-secondary"> / {subPath}</span>}
+    </h4>
+    <a href={`/api/download?path=${encodeURIComponent(pathSegments)}`} class="btn btn-primary btn-sm">
+      <i class="bi bi-download me-1"></i>Download as ZIP
+    </a>
   </div>
-  
-  <nav style="margin-bottom: 1rem; font-size: 0.9rem;">
-    <a href={`/browse/${provider}/${owner}/${repoName}`}>{owner}/{repoName}</a>
-    {breadcrumbs.slice(3).map(bc => (
-      <span> / <a href={`/browse/${bc.path}`}>{bc.name}</a></span>
-    ))}
-  </nav>
 
   {error ? (
-    <div class="card" style="color: #721c24;"><p>{error}</p></div>
+    <div class="alert alert-warning"><i class="bi bi-exclamation-triangle-fill me-2"></i>{error}</div>
   ) : isFile ? (
-    <div class="card">
-      <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
-        <h3>{basename(fullPath)}</h3>
-        <a href={`/api/download?path=${encodeURIComponent(pathSegments)}&file=true`} class="btn btn-sm">⬇️ Download</a>
+    <Card>
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i>{basename(fullPath)}</h5>
+        <a href={`/api/download?path=${encodeURIComponent(pathSegments)}&file=true`} class="btn btn-sm btn-outline-primary">
+          <i class="bi bi-download me-1"></i>Download
+        </a>
       </div>
       {fileContent !== null ? (
-        <pre style="background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.85rem; line-height: 1.5;"><code>{fileContent}</code></pre>
+        <pre class="bg-body-tertiary p-3 rounded border" style="overflow-x:auto; font-size:0.85rem; line-height:1.5; max-height:70vh;"><code>{fileContent}</code></pre>
       ) : (
-        <p>Binary file — <a href={`/api/download?path=${encodeURIComponent(pathSegments)}&file=true`}>download</a></p>
+        <p class="text-secondary mb-0">Binary file — use the Download button.</p>
       )}
-    </div>
+    </Card>
   ) : (
-    <div class="card">
-      <table>
-        <thead>
-          <tr><th>Name</th><th>Size</th></tr>
-        </thead>
-        <tbody>
-          {subPath && (
-            <tr>
-              <td><a href={`/browse/${breadcrumbs.slice(0, -1).map(b => b.name).join('/')}`}>📁 ..</a></td>
-              <td>—</td>
-            </tr>
-          )}
-          {entries.map(entry => (
-            <tr>
-              <td>
-                <a href={`/browse/${entry.path}`}>
-                  {entry.isDir ? '📁' : '📄'} {entry.name}
-                </a>
-              </td>
-              <td>{entry.isDir ? '—' : `${(entry.size / 1024).toFixed(1)} KB`}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Card>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr><th>Name</th><th class="text-end" style="width:8rem;">Size</th></tr>
+          </thead>
+          <tbody>
+            {subPath && (
+              <tr>
+                <td colspan="2"><a href={`/browse/${segs.slice(0, -1).join('/')}`} class="text-decoration-none"><i class="bi bi-arrow-up-circle me-2"></i>..</a></td>
+              </tr>
+            )}
+            {entries.map((entry) => (
+              <tr>
+                <td>
+                  <a href={`/browse/${entry.path}`} class="text-decoration-none">
+                    <i class={`bi ${iconFor(entry.name, entry.isDir)} me-2`}></i>{entry.name}
+                  </a>
+                </td>
+                <td class="text-end font-monospace small text-secondary">{entry.isDir ? '—' : fmtBytes(entry.size)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   )}
 </Layout>

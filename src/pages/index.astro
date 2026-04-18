@@ -1,97 +1,376 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import SmallBox from '../components/SmallBox.astro';
+import Card from '../components/Card.astro';
 import { loadConfig } from '../lib/config.js';
-import { initDatabase, getBackupStats, getBackupRuns } from '../lib/database.js';
+import { initDatabase, getBackupRuns } from '../lib/database.js';
+import {
+  getExtendedStats,
+  getStorageUsage,
+  getRunHistory,
+  formatBytes,
+  formatAge,
+  daysUntil,
+  type ExtendedStats,
+  type StorageUsage,
+  type RunHistoryPoint,
+} from '../lib/stats.js';
 
-let stats: any, recentRuns: any[], config: any;
+let stats: ExtendedStats;
+let recentRuns: any[] = [];
+let history: RunHistoryPoint[] = [];
+let storage: StorageUsage = { totalBytes: 0, byProvider: {}, computedAt: '' };
+let config: any;
+let loadError: string | null = null;
 try {
   config = loadConfig();
   initDatabase(config.dataDir);
-  stats = getBackupStats();
+  stats = getExtendedStats();
   recentRuns = getBackupRuns(5);
+  history = getRunHistory(30);
+  try {
+    storage = getStorageUsage(config.backupsDir);
+  } catch (e) {
+    storage = { totalBytes: 0, byProvider: {}, computedAt: '' };
+  }
 } catch (e) {
-  stats = { lastBackupAt: null, totalRepos: 0, lastRunStatus: null, hadRecentBackup: false, unavailableCount: 0 };
-  recentRuns = [];
+  loadError = (e as Error).message;
+  stats = {
+    totalRepos: 0,
+    lastBackupAt: null,
+    lastBackupAgeSeconds: null,
+    lastRunStatus: null,
+    hadRecentBackup: false,
+    successRate30: null,
+    failedRuns7d: 0,
+    unavailableCount: 0,
+  };
   config = { backupMode: 'option1', cronSchedule: '0 2 * * *', github: null, azureDevOps: null };
 }
 
-const bgColor = stats.hadRecentBackup ? '#d4edda' : '#f8d7da';
-const statusText = stats.hadRecentBackup ? '✅ Backups up to date' : '⚠️ No backup in the last 24 hours';
----
-<Layout title="GitEcho - Dashboard" bgColor={bgColor}>
-  <h1 style="margin-bottom: 1.5rem;">{statusText}</h1>
+const health = stats.hadRecentBackup ? 'success' : 'danger';
 
-  {stats.unavailableCount > 0 && (
-    <div class="card" style="background:#ffe2e0;border-left:4px solid #cf222e;margin-bottom:1rem;">
-      <strong style="color:#721c24;">⚠️ {stats.unavailableCount} repository{stats.unavailableCount === 1 ? '' : 'ies'} unreachable upstream.</strong>
-      <span style="color:#721c24;"> They were skipped during the last backup; existing local backups are preserved. </span>
-      <a href="/repos" style="color:#0969da;">Review on Repositories →</a>
+const modeLabel =
+  config.backupMode === 'option1'
+    ? 'Git Pull (option1)'
+    : config.backupMode === 'option3'
+      ? 'Mirror + ZIP (option3)'
+      : 'ZIP Snapshots (option2)';
+
+function patBadge(days: number | null): { variant: string; label: string } {
+  if (days === null) return { variant: 'secondary', label: 'No expiry set' };
+  if (days < 0) return { variant: 'danger', label: `Expired ${-days}d ago` };
+  if (days < 7) return { variant: 'danger', label: `Expires in ${days}d` };
+  if (days < 30) return { variant: 'warning', label: `Expires in ${days}d` };
+  return { variant: 'success', label: `${days}d remaining` };
+}
+
+const ghDays = daysUntil(config.github?.patExpires);
+const adoDays = daysUntil(config.azureDevOps?.patExpires);
+const ghBadge = patBadge(ghDays);
+const adoBadge = patBadge(adoDays);
+
+const historyLabels = JSON.stringify(history.map((h) => h.id));
+const historySuccess = JSON.stringify(history.map((h) => h.success));
+const historyFailed = JSON.stringify(history.map((h) => h.failed));
+---
+<Layout
+  title="GitEcho — Dashboard"
+  active="dashboard"
+  pageTitle="Dashboard"
+  breadcrumbs={[{ label: 'Home' }]}
+  health={health}
+  backupMode={modeLabel}
+>
+  {loadError && (
+    <div class="alert alert-warning d-flex align-items-center" role="alert">
+      <i class="bi bi-exclamation-triangle-fill me-2"></i>
+      <div>Failed to load dashboard data: <code>{loadError}</code></div>
     </div>
   )}
 
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
-    <div class="card">
-      <h3>Total Repositories</h3>
-      <p style="font-size: 2rem; font-weight: bold;">{stats.totalRepos}</p>
+  {stats.unavailableCount > 0 && (
+    <div class="alert alert-warning d-flex align-items-center" role="alert">
+      <i class="bi bi-cloud-slash-fill me-2 fs-4"></i>
+      <div class="flex-grow-1">
+        <strong>{stats.unavailableCount}</strong> repositor{stats.unavailableCount === 1 ? 'y is' : 'ies are'} unreachable upstream.
+        They were skipped during the last backup; existing local copies are preserved.
+      </div>
+      <a href="/repos" class="btn btn-sm btn-outline-warning ms-2">Review</a>
     </div>
-    <div class="card" style={stats.unavailableCount > 0 ? 'border:1px solid #cf222e;' : ''}>
-      <h3>Unavailable Upstream</h3>
-      <p style={`font-size: 2rem; font-weight: bold; color: ${stats.unavailableCount > 0 ? '#cf222e' : '#155724'};`}>
-        {stats.unavailableCount}
-      </p>
+  )}
+
+  <!-- KPI tiles -->
+  <div class="row">
+    <div class="col-12 col-sm-6 col-md-3">
+      <SmallBox value={stats.totalRepos} label="Total repositories" icon="bi-git" variant="primary" href="/repos" footer="Manage repos" />
     </div>
-    <div class="card">
-      <h3>Last Backup</h3>
-      <p style="font-size: 1.2rem;">{stats.lastBackupAt ? new Date(stats.lastBackupAt).toLocaleString() : 'Never'}</p>
+    <div class="col-12 col-sm-6 col-md-3">
+      <SmallBox value={formatAge(stats.lastBackupAgeSeconds)} label="Last backup" icon="bi-clock-history" variant={stats.hadRecentBackup ? 'success' : 'danger'} href="/runs" footer="See runs" />
     </div>
-    <div class="card">
-      <h3>Backup Mode</h3>
-      <p style="font-size: 1.2rem;">{
-        config.backupMode === 'option1'
-          ? '📂 Git Pull (Option 1)'
-          : config.backupMode === 'option3'
-            ? '📂📦 Mirror + ZIP Snapshots (Option 3)'
-            : '📦 ZIP Snapshots (Option 2)'
-      }</p>
+    <div class="col-12 col-sm-6 col-md-3">
+      <SmallBox value={stats.successRate30 === null ? '—' : `${stats.successRate30}%`} label="Success rate (30 runs)" icon="bi-check2-circle" variant="info" href="/runs" footer="Run history" />
     </div>
-    <div class="card">
-      <h3>Providers</h3>
-      <p>
-        {config.github ? '✅ GitHub' : '❌ GitHub'}<br/>
-        {config.azureDevOps ? '✅ Azure DevOps' : '❌ Azure DevOps'}
-      </p>
+    <div class="col-12 col-sm-6 col-md-3">
+      <SmallBox value={stats.unavailableCount} label="Unavailable upstream" icon="bi-cloud-slash" variant={stats.unavailableCount > 0 ? 'danger' : 'secondary'} href="/repos" footer="Review repos" />
     </div>
   </div>
 
-  {recentRuns.length > 0 && (
-    <div class="card">
-      <h2 style="margin-bottom: 1rem;">Recent Backup Runs</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Status</th>
-            <th>Repos</th>
-            <th>Success</th>
-            <th>Failed</th>
-            <th>Unavailable</th>
-            <th>Mode</th>
-          </tr>
-        </thead>
-        <tbody>
-          {recentRuns.map(run => (
-            <tr>
-              <td>{new Date(run.started_at).toLocaleString()}</td>
-              <td><span class={`status-badge status-${run.status}`}>{run.status}</span></td>
-              <td>{run.repos_total}</td>
-              <td>{run.repos_success}</td>
-              <td>{run.repos_failed}</td>
-              <td>{run.repos_unavailable ?? 0}</td>
-              <td>{run.backup_mode}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+  <!-- Provider cards -->
+  <div class="row">
+    <div class="col-12 col-lg-6">
+      <Card title="GitHub" icon="bi-github">
+        {config.github ? (
+          <>
+            <div class="mb-2">
+              <span class="badge text-bg-success me-2"><i class="bi bi-check-circle me-1"></i>Configured</span>
+              <span class={`badge text-bg-${ghBadge.variant}`}><i class="bi bi-key me-1"></i>{ghBadge.label}</span>
+            </div>
+            <p class="mb-1 text-secondary small">PAT expires: <strong>{config.github.patExpires?.toISOString().slice(0, 10) ?? '—'}</strong></p>
+            <p class="mb-1 text-secondary small">Auto-discover: <strong>{config.github.autoDiscover === false ? 'off' : 'on'}</strong></p>
+            <button class="btn btn-sm btn-outline-primary mt-2" data-action="test-github"><i class="bi bi-plug me-1"></i>Test connection</button>
+          </>
+        ) : (
+          <>
+            <span class="badge text-bg-secondary"><i class="bi bi-x-circle me-1"></i>Not configured</span>
+            <p class="mt-2 mb-0"><a href="/settings/providers" class="btn btn-sm btn-primary"><i class="bi bi-gear me-1"></i>Configure</a></p>
+          </>
+        )}
+      </Card>
     </div>
-  )}
+    <div class="col-12 col-lg-6">
+      <Card title="Azure DevOps" icon="bi-microsoft">
+        {config.azureDevOps ? (
+          <>
+            <div class="mb-2">
+              <span class="badge text-bg-success me-2"><i class="bi bi-check-circle me-1"></i>Configured</span>
+              <span class={`badge text-bg-${adoBadge.variant}`}><i class="bi bi-key me-1"></i>{adoBadge.label}</span>
+            </div>
+            <p class="mb-1 text-secondary small">PAT expires: <strong>{config.azureDevOps.patExpires?.toISOString().slice(0, 10) ?? '—'}</strong></p>
+            <p class="mb-1 text-secondary small">Org: <strong>{config.azureDevOps.org ?? '—'}</strong></p>
+            <button class="btn btn-sm btn-outline-primary mt-2" data-action="test-azuredevops"><i class="bi bi-plug me-1"></i>Test connection</button>
+          </>
+        ) : (
+          <>
+            <span class="badge text-bg-secondary"><i class="bi bi-x-circle me-1"></i>Not configured</span>
+            <p class="mt-2 mb-0"><a href="/settings/providers" class="btn btn-sm btn-primary"><i class="bi bi-gear me-1"></i>Configure</a></p>
+          </>
+        )}
+      </Card>
+    </div>
+  </div>
+
+  <!-- Storage + Sparkline -->
+  <div class="row">
+    <div class="col-12 col-lg-4">
+      <Card title="Storage usage" icon="bi-hdd">
+        <h2 class="display-6 fw-semibold mb-1" id="storage-total">{formatBytes(storage.totalBytes)}</h2>
+        <p class="text-secondary mb-2 small">Total under <code>{config.backupsDir}</code></p>
+        <ul class="list-unstyled mb-2 small" id="storage-breakdown">
+          {Object.entries(storage.byProvider).map(([p, b]) => (
+            <li class="d-flex justify-content-between border-bottom py-1">
+              <span class="text-capitalize">{p}</span>
+              <span class="font-monospace">{formatBytes(b as number)}</span>
+            </li>
+          ))}
+        </ul>
+        <button class="btn btn-sm btn-outline-secondary" id="refresh-storage">
+          <i class="bi bi-arrow-clockwise me-1"></i>Recompute
+        </button>
+      </Card>
+    </div>
+    <div class="col-12 col-lg-8">
+      <Card title="Backup health (last 30 runs)" icon="bi-graph-up">
+        {history.length === 0 ? (
+          <p class="text-secondary mb-0">No backup runs yet.</p>
+        ) : (
+          <div style="height: 220px;"><canvas id="history-chart"></canvas></div>
+        )}
+      </Card>
+    </div>
+  </div>
+
+  <!-- Quick actions -->
+  <div class="row">
+    <div class="col-12">
+      <Card title="Quick actions" icon="bi-lightning-charge">
+        <div class="d-flex flex-wrap gap-2">
+          <button id="run-backup-btn" class="btn btn-primary">
+            <i class="bi bi-play-circle me-1"></i>Run backup now
+          </button>
+          <button class="btn btn-outline-secondary" data-action="test-github" disabled={!config.github}>
+            <i class="bi bi-github me-1"></i>Test GitHub
+          </button>
+          <button class="btn btn-outline-secondary" data-action="test-azuredevops" disabled={!config.azureDevOps}>
+            <i class="bi bi-microsoft me-1"></i>Test Azure DevOps
+          </button>
+          <button class="btn btn-outline-secondary" data-action="test-smtp">
+            <i class="bi bi-envelope me-1"></i>Send test email
+          </button>
+          <span id="backup-status" class="ms-auto text-secondary small align-self-center"></span>
+        </div>
+      </Card>
+    </div>
+  </div>
+
+  <!-- Recent runs -->
+  <Card title={`Recent backup runs`} icon="bi-list-task">
+    {recentRuns.length === 0 ? (
+      <p class="text-secondary mb-0">No backup runs yet.</p>
+    ) : (
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Started</th>
+              <th>Status</th>
+              <th class="text-end">Repos</th>
+              <th class="text-end">Success</th>
+              <th class="text-end">Failed</th>
+              <th>Mode</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {recentRuns.map((r: any) => (
+              <tr>
+                <td class="font-monospace">#{r.id}</td>
+                <td>{new Date(r.started_at).toLocaleString()}</td>
+                <td>
+                  <span class={`badge text-bg-${r.status === 'success' ? 'success' : r.status === 'failed' ? 'danger' : r.status === 'running' ? 'info' : 'warning'}`}>
+                    {r.status}
+                  </span>
+                </td>
+                <td class="text-end">{r.repos_total}</td>
+                <td class="text-end text-success">{r.repos_success}</td>
+                <td class="text-end text-danger">{r.repos_failed}</td>
+                <td><code>{r.backup_mode}</code></td>
+                <td><a class="btn btn-sm btn-outline-primary" href={`/runs/${r.id}`}>Details</a></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </Card>
 </Layout>
+
+<script define:vars={{ historyLabels, historySuccess, historyFailed }}>
+  // Render chart
+  if (window.Chart === undefined && document.getElementById('history-chart')) {
+    import('chart.js/auto').then(({ default: Chart }) => {
+      const ctx = document.getElementById('history-chart');
+      if (!ctx) return;
+      const labels = JSON.parse(historyLabels).map((id) => `#${id}`);
+      const success = JSON.parse(historySuccess);
+      const failed = JSON.parse(historyFailed);
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Success', data: success, backgroundColor: 'rgba(25,135,84,0.7)', stack: 's' },
+            { label: 'Failed', data: failed, backgroundColor: 'rgba(220,53,69,0.7)', stack: 's' },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } },
+          plugins: { legend: { position: 'bottom' } },
+        },
+      });
+    });
+  }
+</script>
+
+<script>
+  import { toast } from '../scripts/toasts.ts';
+  import { formatBytes } from '../scripts/format.ts';
+
+  // Run backup button + polling
+  const runBtn = document.getElementById('run-backup-btn') as HTMLButtonElement | null;
+  const statusEl = document.getElementById('backup-status');
+
+  async function refreshStatus() {
+    try {
+      const res = await fetch('/api/backup/trigger');
+      const j = await res.json();
+      if (j.running) {
+        if (statusEl) statusEl.textContent = `Running (pid ${j.lock?.pid ?? '?'})`;
+        if (runBtn) runBtn.disabled = true;
+      } else {
+        if (statusEl) statusEl.textContent = 'No backup running';
+        if (runBtn) runBtn.disabled = false;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  runBtn?.addEventListener('click', async () => {
+    runBtn.disabled = true;
+    try {
+      const res = await fetch('/api/backup/trigger', { method: 'POST' });
+      const j = await res.json();
+      if (res.ok) {
+        toast('Backup started', 'success');
+      } else {
+        toast(j.error || 'Failed to start backup', 'danger');
+      }
+    } catch (e) {
+      toast('Network error: ' + (e as Error).message, 'danger');
+    }
+    refreshStatus();
+  });
+
+  document.querySelectorAll('[data-action="test-github"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      toast('Testing GitHub connection…', 'info');
+      const res = await fetch('/api/test/github', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const j = await res.json();
+      toast(j.message || j.error || (res.ok ? 'OK' : 'Failed'), res.ok ? 'success' : 'danger');
+    });
+  });
+
+  document.querySelectorAll('[data-action="test-azuredevops"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      toast('Testing Azure DevOps connection…', 'info');
+      const res = await fetch('/api/test/azuredevops', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const j = await res.json();
+      toast(j.message || j.error || (res.ok ? 'OK' : 'Failed'), res.ok ? 'success' : 'danger');
+    });
+  });
+
+  document.querySelectorAll('[data-action="test-smtp"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      toast('Sending test email…', 'info');
+      const res = await fetch('/api/test/smtp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const j = await res.json();
+      toast(j.message || j.error || (res.ok ? 'OK' : 'Failed'), res.ok ? 'success' : 'danger');
+    });
+  });
+
+  document.getElementById('refresh-storage')?.addEventListener('click', async () => {
+    toast('Recomputing storage usage…', 'info');
+    const res = await fetch('/api/storage?force=1');
+    const j = await res.json();
+    if (!res.ok) {
+      toast(j.error || 'Failed', 'danger');
+      return;
+    }
+    const totalEl = document.getElementById('storage-total');
+    if (totalEl) totalEl.textContent = formatBytes(j.totalBytes);
+    const list = document.getElementById('storage-breakdown');
+    if (list) {
+      list.innerHTML = Object.entries(j.byProvider as Record<string, number>)
+        .map(([p, b]) => `<li class="d-flex justify-content-between border-bottom py-1"><span class="text-capitalize">${p}</span><span class="font-monospace">${formatBytes(b)}</span></li>`)
+        .join('');
+    }
+    toast('Storage usage updated', 'success');
+  });
+
+  refreshStatus();
+  setInterval(refreshStatus, 5000);
+</script>

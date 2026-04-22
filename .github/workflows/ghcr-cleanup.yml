@@ -1,0 +1,29 @@
+name: Cleanup old container images
+
+on:
+  schedule:
+    # Every Sunday at 03:00 UTC
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    steps:
+      - name: Delete untagged and old images
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          package: gitecho
+          owner: ${{ github.repository_owner }}
+          # Remove untagged manifests that are NOT referenced by any tagged
+          # multi-arch manifest list (safe for the per-arch children of :latest).
+          delete-untagged: true
+          # Keep sha- tagged builds for traceability, but only the newest 20.
+          older-than: 30 days
+          keep-n-tagged: 20
+          # Never delete these important tags.
+          exclude-tags: latest

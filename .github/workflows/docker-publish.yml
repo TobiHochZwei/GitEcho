@@ -124,10 +124,13 @@ jobs:
             type=sha,prefix=sha-
 
       - name: Create multi-arch manifest and push
+        id: manifest
         working-directory: ${{ runner.temp }}/digests
         run: |
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@sha256:%s ' *)
+          digest=$(docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}:${{ steps.meta.outputs.version }} --format '{{ json .Manifest }}' | jq -r '.digest')
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Inspect image
         run: |
@@ -137,5 +140,5 @@ jobs:
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}
-          subject-digest: ${{ steps.meta.outputs.digest }}
+          subject-digest: ${{ steps.manifest.outputs.digest }}
           push-to-registry: true

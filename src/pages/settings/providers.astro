@@ -107,6 +107,14 @@ const providers = [
                   <li><strong>Fine-grained PAT:</strong> Repository permissions → <em>Contents: Read</em> and <em>Metadata: Read</em>. Grant access to <strong>all repositories</strong> (or all in the target org) you want backed up — a fine-grained PAT only sees repos it was explicitly granted access to.</li>
                 </ul>
                 Create one at <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.
+                <div class="mt-2">
+                  <strong>Accessing repos across multiple users / organizations</strong>
+                  <ul class="mb-0 ps-3">
+                    <li>A single <strong>classic PAT</strong> with <code>repo</code> + <code>read:org</code> sees every private repo your GitHub account has access to — your own repos, repos in orgs you belong to, and repos in other users' accounts where you're a collaborator.</li>
+                    <li>If an org enforces <strong>SAML SSO</strong>, open the token on <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a> and click <em>Configure SSO</em> → <em>Authorize</em> for each org. Without this, that org's repos stay invisible to the PAT even though you personally have access.</li>
+                    <li><strong>Fine-grained PATs</strong> are scoped to a single resource owner (your user <em>or</em> one org) and don't support cross-account collaborator access — use a classic PAT if you need to back up repos from multiple owners.</li>
+                  </ul>
+                </div>
               </div>
             </div>
           )}
@@ -125,6 +133,14 @@ const providers = [
                   <strong>Discovery works but shows fewer repos than expected?</strong>
                   Test only calls <code>project list</code>; Discover additionally calls <code>repos list</code> per project.
                   If the PAT is missing <em>Code: Read</em> on some projects, those projects return no repos.
+                </div>
+                <div class="mt-2">
+                  <strong>Accessing repos across multiple organizations</strong>
+                  <ul class="mb-0 ps-3">
+                    <li>Azure DevOps PATs are <strong>scoped to one organization at creation time</strong>. On the token page, set <em>Organization</em> to <em>All accessible organizations</em> to issue a PAT that works against every org your identity is a member of (same Entra ID / Microsoft account).</li>
+                    <li>This field above (<em>Organization name</em>) still targets a single org for discovery — GitEcho iterates projects inside it. To back up repos from <strong>additional orgs</strong>, list them in <code>repos.txt</code> with their full <code>https://dev.azure.com/&lt;other-org&gt;/&lt;project&gt;/_git/&lt;repo&gt;</code> URL; the same PAT will authenticate as long as it was issued with <em>All accessible organizations</em>.</li>
+                    <li>If the orgs live in <strong>different Entra tenants</strong> or under different Microsoft accounts, a single PAT can't span them — create one PAT per tenant and run separate GitEcho instances, or use each org's URL with its own credentials.</li>
+                  </ul>
                 </div>
               </div>
             </div>

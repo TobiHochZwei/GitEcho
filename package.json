@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@astrojs/check": "^0.9.8",
-    "@astrojs/node": "^10.0.5",
+    "@astrojs/node": "^10.0.6",
     "@popperjs/core": "^2.11.8",
     "admin-lte": "^4.0.0-rc7",
     "archiver": "^7.0.1",

@@ -22,6 +22,10 @@ if [ "$(id -u)" = "0" ]; then
   GITECHO_UID="$(id -u gitecho)"
   GITECHO_GID="$(id -g gitecho)"
 
+  echo "Mount point ownership (host view, numeric):" >&2
+  ls -ldn /data /config /backups 2>&1 | sed 's/^/  /' >&2 || true
+  echo "Container gitecho user: uid=${GITECHO_UID} gid=${GITECHO_GID}" >&2
+
   for d in /data /config /backups; do
     mkdir -p "$d" 2>/dev/null || true
     if [ ! -d "$d" ]; then
@@ -41,34 +45,51 @@ if [ "$(id -u)" = "0" ]; then
       fi
     fi
 
-    # Verify the target directory is actually writable by the gitecho user.
-    # Catches the case where chown failed silently AND the host UID/GID
-    # don't match, which would otherwise blow up later inside the app.
-    if ! gosu gitecho test -w "$d"; then
-      cat >&2 <<EOF
-ERROR: $d is not writable by the 'gitecho' user (uid=${GITECHO_UID}, gid=${GITECHO_GID}).
-
-This usually happens on Synology / QNAP / other NAS systems where the
-host directory's ownership cannot be changed from inside the container.
-
-Fix: set PUID and PGID environment variables to match the host
-directory's owner, so the container's 'gitecho' user is remapped to it.
-
-  1. On the NAS host, check ownership of the mounted folder, e.g.:
-       ls -ldn /volume1/docker/gitecho/config
-     The first number after the permission bits is the UID, the second is the GID.
-
-  2. Pass them into the container (docker-compose.yml):
-       environment:
-         PUID: "<that uid>"
-         PGID: "<that gid>"
-
-  3. Recreate the container:  docker compose up -d --force-recreate
-
-Current directory ownership: uid=${current_uid} gid=${current_gid}
-EOF
+    # Real write probe: actually create + delete a file as the gitecho user.
+    # `test -w` (access(W_OK)) is UNRELIABLE on Synology / NFSv4 ACL
+    # filesystems because WRITE_DATA and ADD_FILE can be granted
+    # separately - `test -w` can pass while `touch` still fails with
+    # "Permission denied".
+    probe=".gitecho-write-probe.$$"
+    probe_err="$(gosu gitecho sh -c "touch '$d/$probe' && rm -f '$d/$probe'" 2>&1)" && probe_rc=0 || probe_rc=$?
+    if [ "$probe_rc" != "0" ]; then
+      {
+        echo ""
+        echo "ERROR: $d is not writable by the 'gitecho' user (uid=${GITECHO_UID}, gid=${GITECHO_GID})."
+        echo "Probe result: touch '$d/$probe' -> ${probe_err:-(no stderr)}"
+        echo ""
+        echo "Ownership of all mount points (numeric):"
+        ls -ldn /data /config /backups 2>&1 | sed 's/^/  /'
+        echo ""
+        echo "Listing of $d (a '+' in perms = ACL active):"
+        ls -lan "$d" 2>&1 | sed 's/^/  /'
+        echo ""
+        echo "This usually happens on Synology / QNAP / other NAS systems"
+        echo "where the host directory's ownership cannot be changed from"
+        echo "inside the container."
+        echo ""
+        echo "Fix: set PUID and PGID env vars to match the host directory's"
+        echo "owner, so the container's 'gitecho' user is remapped to it."
+        echo ""
+        echo "  1. On the NAS host, check ownership of the mounted folder:"
+        echo "       ls -ldn /volume1/docker/gitecho/config"
+        echo "     First number after perms = UID, second = GID."
+        echo ""
+        echo "  2. In docker-compose.yml:"
+        echo "       environment:"
+        echo "         PUID: \"<that uid>\""
+        echo "         PGID: \"<that gid>\""
+        echo ""
+        echo "  3. Recreate:  docker compose up -d --force-recreate"
+        echo ""
+        echo "  If the path shows a '+' in the permission bits (Synology"
+        echo "  ACL), also grant the host user full rights via DSM ->"
+        echo "  Shared Folder -> Permissions, or on the NAS:"
+        echo "     synoacltool -add <path> \"user:<user>:allow:rwxpdDaARWcCo:fd--\""
+      } >&2
       exit 1
     fi
+    unset probe_rc probe_err
   done
 
   # Re-exec as gitecho. `exec` replaces this shell so gosu's child becomes

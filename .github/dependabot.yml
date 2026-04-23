@@ -5,7 +5,21 @@
 
 version: 2
 updates:
-  - package-ecosystem: "npm" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Keep @types/node aligned with Node.js 22 LTS runtime (used in Dockerfile)
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+    groups:
+      node-ecosystem:
+        patterns:
+          - "@types/node*"
+          - "typescript"
+  
+  - package-ecosystem: "docker"
+    directory: "/"
     schedule:
       interval: "weekly"

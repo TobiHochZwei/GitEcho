@@ -71,8 +71,10 @@ export async function executeBackupCycle(): Promise<void> {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
     logger.error(`[Scheduler] Backup cycle failed: ${message}`);
-    await notifyCriticalError(message, 'Backup cycle crashed');
+    if (stack) logger.error(`[Scheduler] Stack:\n${stack}`);
+    await notifyCriticalError(message, stack ?? 'Backup cycle crashed');
   } finally {
     isRunning = false;
     handle.release();

@@ -1,7 +1,7 @@
 {
   "name": "gitecho",
   "type": "module",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "GitHub/Azure DevOps repository backup tool",
   "scripts": {
     "dev": "astro dev",

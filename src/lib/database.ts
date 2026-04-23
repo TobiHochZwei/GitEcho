@@ -203,25 +203,35 @@ export function upsertRepository(repo: {
 }): Repository {
   const database = getDatabase();
 
-  const stmt = database.prepare(`
-    INSERT INTO repositories (url, provider, owner, name)
-    VALUES (@url, @provider, @owner, @name)
-    ON CONFLICT(url) DO UPDATE SET
-      provider = excluded.provider,
-      owner = excluded.owner,
-      name = excluded.name,
-      updated_at = datetime('now')
-  `);
+  // INSERT … ON CONFLICT DO UPDATE does NOT reliably update
+  // `lastInsertRowid` on the UPDATE path in better-sqlite3 — the value may
+  // point at an unrelated row from an earlier INSERT in the same
+  // connection. Always look the row up by its unique `url` to be safe.
+  database
+    .prepare(
+      `
+        INSERT INTO repositories (url, provider, owner, name)
+        VALUES (@url, @provider, @owner, @name)
+        ON CONFLICT(url) DO UPDATE SET
+          provider = excluded.provider,
+          owner = excluded.owner,
+          name = excluded.name,
+          updated_at = datetime('now')
+      `,
+    )
+    .run(repo);
 
-  const result = stmt.run(repo);
-  const id =
-    result.changes === 1 && result.lastInsertRowid
-      ? Number(result.lastInsertRowid)
-      : (database
-          .prepare('SELECT id FROM repositories WHERE url = ?')
-          .get(repo.url) as { id: number }).id;
+  const row = database
+    .prepare('SELECT * FROM repositories WHERE url = ?')
+    .get(repo.url) as Repository | undefined;
 
-  return getRepository(id)!;
+  if (!row) {
+    throw new Error(
+      `[db] upsertRepository: no row found for ${repo.url} after insert. ` +
+        'Database write may have failed.',
+    );
+  }
+  return row;
 }
 
 export function getRepositories(provider?: string): Repository[] {

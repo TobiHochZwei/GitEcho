@@ -39,6 +39,12 @@ export async function runBackup(): Promise<BackupResult> {
 
   // Create backup run in DB
   const run = createBackupRun(backupMode);
+  if (!run || typeof run.id !== 'number') {
+    throw new Error(
+      `[backup] createBackupRun did not return a row (got ${JSON.stringify(run)}). ` +
+        'The SQLite database under /data may be corrupt or unwritable.',
+    );
+  }
   const startedAt = run.started_at;
 
   const failures: Array<{ repo: string; error: string }> = [];
@@ -73,8 +79,24 @@ export async function runBackup(): Promise<BackupResult> {
       owner: repo.owner,
       name: repo.name,
     });
+    if (!dbRepo || typeof dbRepo.id !== 'number') {
+      logger.error(
+        `[backup] upsertRepository returned ${JSON.stringify(dbRepo)} for ${repo.url} — skipping`,
+      );
+      failures.push({ repo: repoLabel, error: 'DB upsert returned no row' });
+      failedCount++;
+      continue;
+    }
 
     const item = createBackupItem({ runId: run.id, repositoryId: dbRepo.id });
+    if (!item || typeof item.id !== 'number') {
+      logger.error(
+        `[backup] createBackupItem returned ${JSON.stringify(item)} for ${repo.url} — skipping`,
+      );
+      failures.push({ repo: repoLabel, error: 'DB item insert returned no row' });
+      failedCount++;
+      continue;
+    }
 
     try {
       if (backupMode === 'option1') {

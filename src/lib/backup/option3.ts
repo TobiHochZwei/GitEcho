@@ -35,10 +35,26 @@ import type { ProviderPlugin, RepositoryInfo } from '../plugins/interface';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Environment variables that disable any interactive git/credential prompts.
+ * Without these, git will block forever on stdin when authentication fails —
+ * e.g. when running in a container with no TTY and a bad/expired PAT.
+ */
+function nonInteractiveGitEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ASKPASS: '',
+    SSH_ASKPASS: '',
+    GCM_INTERACTIVE: 'Never',
+  };
+}
+
 async function git(args: string[], cwd?: string): Promise<string> {
   const { stdout } = await execFileAsync('git', args, {
     encoding: 'utf-8',
     maxBuffer: 50 * 1024 * 1024,
+    env: nonInteractiveGitEnv(),
     ...(cwd ? { cwd } : {}),
   });
   return stdout.trim();

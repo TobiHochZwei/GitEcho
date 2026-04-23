@@ -9,6 +9,21 @@ import type { ProviderPlugin, RepositoryInfo } from './interface.js';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Environment variables that disable any interactive git/credential prompts.
+ * Without these, git will block forever on stdin when authentication fails —
+ * e.g. when running in a container with no TTY and a bad/expired PAT.
+ */
+function nonInteractiveGitEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ASKPASS: '',
+    SSH_ASKPASS: '',
+    GCM_INTERACTIVE: 'Never',
+  };
+}
+
 async function execCommand(
   command: string,
   args: string[],
@@ -77,7 +92,7 @@ export class GitHubPlugin implements ProviderPlugin {
   async cloneRepository(repoUrl: string, targetDir: string): Promise<void> {
     const url = this.getAuthenticatedUrl(repoUrl);
     try {
-      await execCommand('git', ['clone', url, targetDir]);
+      await execCommand('git', ['clone', url, targetDir], { env: nonInteractiveGitEnv() });
     } catch (error) {
       rethrowAsUnavailableIfMatch(error, repoUrl);
     }
@@ -85,12 +100,16 @@ export class GitHubPlugin implements ProviderPlugin {
 
   async pullRepository(repoDir: string): Promise<void> {
     try {
-      await execCommand('git', ['-C', repoDir, 'fetch', '--all']);
+      await execCommand('git', ['-C', repoDir, 'fetch', '--all'], {
+        env: nonInteractiveGitEnv(),
+      });
     } catch (error) {
       rethrowAsUnavailableIfMatch(error, repoDir);
     }
     try {
-      await execCommand('git', ['-C', repoDir, 'pull', '--ff-only']);
+      await execCommand('git', ['-C', repoDir, 'pull', '--ff-only'], {
+        env: nonInteractiveGitEnv(),
+      });
     } catch (error) {
       logger.warn(
         `[github] pull --ff-only failed for ${repoDir}, history may have diverged: ${(error as Error).message}`,
@@ -101,7 +120,18 @@ export class GitHubPlugin implements ProviderPlugin {
   getAuthenticatedUrl(repoUrl: string): string {
     const pat = this.getPat();
     const normalized = repoUrl.replace(/\.git$/, '');
-    return normalized.replace('https://github.com/', `https://${pat}@github.com/`) + '.git';
+    // Use "x-access-token:<pat>@github.com" which is the documented form for
+    // both classic (ghp_) and fine-grained (github_pat_) PATs. The bare
+    // "<pat>@github.com" variant is rejected by fine-grained PATs, which
+    // causes git to fall back to an interactive password prompt and hang the
+    // worker when running without a TTY (e.g. in Docker).
+    if (normalized.startsWith('https://x-access-token:')) {
+      return normalized + '.git';
+    }
+    return (
+      normalized.replace('https://github.com/', `https://x-access-token:${pat}@github.com/`) +
+      '.git'
+    );
   }
 
   // ---------------------------------------------------------------------------

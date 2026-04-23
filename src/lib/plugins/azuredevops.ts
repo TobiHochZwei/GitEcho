@@ -41,6 +41,21 @@ function azEnv(): NodeJS.ProcessEnv {
   };
 }
 
+/**
+ * Environment variables that disable any interactive git/credential prompts.
+ * Without these, git will block forever on stdin when authentication fails —
+ * e.g. when running in a container with no TTY and a bad/expired PAT.
+ */
+function nonInteractiveGitEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ASKPASS: '',
+    SSH_ASKPASS: '',
+    GCM_INTERACTIVE: 'Never',
+  };
+}
+
 /** Extract the organization URL from a dev.azure.com repo URL. */
 function orgUrlFromRepoUrl(repoUrl: string): string | undefined {
   const match = repoUrl.match(AZURE_DEVOPS_URL_RE);
@@ -266,7 +281,9 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
   async cloneRepository(repoUrl: string, targetDir: string): Promise<void> {
     const authenticatedUrl = this.getAuthenticatedUrl(repoUrl);
     try {
-      await execCommand('git', ['clone', authenticatedUrl, targetDir]);
+      await execCommand('git', ['clone', authenticatedUrl, targetDir], {
+        env: nonInteractiveGitEnv(),
+      });
     } catch (error) {
       rethrowAsUnavailableIfMatch(error, repoUrl);
     }
@@ -274,13 +291,17 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
 
   async pullRepository(repoDir: string): Promise<void> {
     try {
-      await execCommand('git', ['-C', repoDir, 'fetch', '--all']);
+      await execCommand('git', ['-C', repoDir, 'fetch', '--all'], {
+        env: nonInteractiveGitEnv(),
+      });
     } catch (error) {
       rethrowAsUnavailableIfMatch(error, repoDir);
     }
 
     try {
-      await execCommand('git', ['-C', repoDir, 'pull', '--ff-only']);
+      await execCommand('git', ['-C', repoDir, 'pull', '--ff-only'], {
+        env: nonInteractiveGitEnv(),
+      });
     } catch (error) {
       logger.warn(
         `[azuredevops] Fast-forward pull failed for "${repoDir}" (branches may have diverged):`,
@@ -295,11 +316,16 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
 
     try {
       const url = new URL(repoUrl);
-      url.username = config.azureDevOps.pat;
+      // Azure DevOps accepts Basic auth with any (or empty) username and the
+      // PAT as password. Using an explicit "pat" username is more portable
+      // than username-only, which some git/credential-helper combos treat as
+      // "missing password" and prompt for interactively.
+      url.username = 'pat';
+      url.password = config.azureDevOps.pat;
       return url.toString();
     } catch {
       // Fallback: simple string replacement
-      return repoUrl.replace('https://', `https://${config.azureDevOps.pat}@`);
+      return repoUrl.replace('https://', `https://pat:${config.azureDevOps.pat}@`);
     }
   }
 }

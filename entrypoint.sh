@@ -24,18 +24,50 @@ if [ "$(id -u)" = "0" ]; then
 
   for d in /data /config /backups; do
     mkdir -p "$d" 2>/dev/null || true
-    if [ -d "$d" ]; then
-      current_uid="$(stat -c '%u' "$d" 2>/dev/null || echo "")"
-      if [ "$current_uid" != "$GITECHO_UID" ]; then
-        if ! chown -R "${GITECHO_UID}:${GITECHO_GID}" "$d" 2>/dev/null; then
-          if [ "$d" = "/data" ]; then
-            echo "ERROR: cannot chown $d and the SQLite database lives there. Aborting." >&2
-            exit 1
-          else
-            echo "Warning: could not chown $d (read-only mount?). Continuing." >&2
-          fi
-        fi
+    if [ ! -d "$d" ]; then
+      echo "ERROR: $d is not a directory" >&2
+      exit 1
+    fi
+
+    current_uid="$(stat -c '%u' "$d" 2>/dev/null || echo "")"
+    current_gid="$(stat -c '%g' "$d" 2>/dev/null || echo "")"
+
+    if [ "$current_uid" != "$GITECHO_UID" ] || [ "$current_gid" != "$GITECHO_GID" ]; then
+      # Try recursive chown. Some NAS filesystems (Synology shared folders
+      # with ACLs, SMB/NFS mounts) block chown even for root inside the
+      # container - do NOT suppress the error, we want to see it.
+      if ! chown -R "${GITECHO_UID}:${GITECHO_GID}" "$d"; then
+        echo "Warning: chown of $d failed (filesystem likely blocks chown, common on Synology/SMB/NFS)." >&2
       fi
+    fi
+
+    # Verify the target directory is actually writable by the gitecho user.
+    # Catches the case where chown failed silently AND the host UID/GID
+    # don't match, which would otherwise blow up later inside the app.
+    if ! gosu gitecho test -w "$d"; then
+      cat >&2 <<EOF
+ERROR: $d is not writable by the 'gitecho' user (uid=${GITECHO_UID}, gid=${GITECHO_GID}).
+
+This usually happens on Synology / QNAP / other NAS systems where the
+host directory's ownership cannot be changed from inside the container.
+
+Fix: set PUID and PGID environment variables to match the host
+directory's owner, so the container's 'gitecho' user is remapped to it.
+
+  1. On the NAS host, check ownership of the mounted folder, e.g.:
+       ls -ldn /volume1/docker/gitecho/config
+     The first number after the permission bits is the UID, the second is the GID.
+
+  2. Pass them into the container (docker-compose.yml):
+       environment:
+         PUID: "<that uid>"
+         PGID: "<that gid>"
+
+  3. Recreate the container:  docker compose up -d --force-recreate
+
+Current directory ownership: uid=${current_uid} gid=${current_gid}
+EOF
+      exit 1
     fi
   done
 

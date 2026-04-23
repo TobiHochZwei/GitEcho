@@ -80,7 +80,7 @@ function statusVariant(s: string | null): string {
                   <td>
                     <div class="fw-semibold">{repo.owner}/{repo.name}</div>
                     <div class="text-secondary small text-truncate" style="max-width: 480px;">{repo.url}</div>
-                    {repo.last_error && <div class="text-danger small mt-1"><i class="bi bi-exclamation-circle me-1"></i>{repo.last_error}</div>}
+                    {repo.last_error && <div class="text-danger small mt-1 text-break" style="max-width: 480px; word-break: break-word; overflow-wrap: anywhere; white-space: normal;"><i class="bi bi-exclamation-circle me-1"></i>{repo.last_error}</div>}
                   </td>
                   <td>
                     {repo.provider === 'github'

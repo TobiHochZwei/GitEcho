@@ -4,6 +4,7 @@ import { patchSettings } from '../../../lib/settings.js';
 interface GeneralInput {
   backupMode?: 'option1' | 'option2' | 'option3';
   cronSchedule?: string;
+  logLevel?: 'debug' | 'info' | 'warn' | 'error';
 }
 
 function isValidCron(expression: string): boolean {
@@ -33,10 +34,23 @@ export const PUT: APIRoute = async ({ request }) => {
       { status: 400 },
     );
   }
+  if (
+    body.logLevel !== undefined &&
+    body.logLevel !== 'debug' &&
+    body.logLevel !== 'info' &&
+    body.logLevel !== 'warn' &&
+    body.logLevel !== 'error'
+  ) {
+    return new Response(
+      JSON.stringify({ error: 'logLevel must be debug, info, warn, or error' }),
+      { status: 400 },
+    );
+  }
 
   patchSettings({
     backupMode: body.backupMode,
     cronSchedule: body.cronSchedule,
+    logLevel: body.logLevel,
   });
 
   return new Response(JSON.stringify({ ok: true, note: 'Cron schedule changes require a worker restart to take effect.' }), {

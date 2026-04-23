@@ -1,0 +1,244 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Card from '../components/Card.astro';
+import { loadSettings } from '../lib/settings.js';
+import { effectiveLevel } from '../lib/logger.js';
+
+const settings = loadSettings();
+const currentLevel = settings.logLevel ?? effectiveLevel();
+---
+<Layout
+  title="GitEcho — Logs"
+  active="logs"
+  pageTitle="Logs"
+  breadcrumbs={[
+    { label: 'Home', href: '/' },
+    { label: 'Logs' },
+  ]}
+>
+  <Card>
+    <form id="logs-filter" class="row g-2 align-items-end mb-3">
+      <div class="col-12 col-md-4">
+        <label class="form-label small fw-semibold" for="f-search">Search</label>
+        <input type="text" id="f-search" class="form-control form-control-sm" placeholder="substring match (case-insensitive)" />
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label small fw-semibold">Level</label>
+        <div class="btn-group btn-group-sm w-100" role="group">
+          {['debug', 'info', 'warn', 'error'].map((lvl) => (
+            <>
+              <input type="checkbox" class="btn-check f-level" id={`lvl-${lvl}`} value={lvl} checked />
+              <label class="btn btn-outline-secondary" for={`lvl-${lvl}`}>{lvl}</label>
+            </>
+          ))}
+        </div>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small fw-semibold">Source</label>
+        <div class="btn-group btn-group-sm w-100" role="group">
+          {['server', 'worker'].map((src) => (
+            <>
+              <input type="checkbox" class="btn-check f-source" id={`src-${src}`} value={src} checked />
+              <label class="btn btn-outline-secondary" for={`src-${src}`}>{src}</label>
+            </>
+          ))}
+        </div>
+      </div>
+      <div class="col-12 col-md-3">
+        <label class="form-label small fw-semibold" for="f-level-threshold">Minimum level (persisted)</label>
+        <div class="input-group input-group-sm">
+          <select id="f-level-threshold" class="form-select">
+            {['debug', 'info', 'warn', 'error'].map((lvl) => (
+              <option value={lvl} selected={lvl === currentLevel}>{lvl}</option>
+            ))}
+          </select>
+          <button type="button" id="save-level" class="btn btn-outline-primary">Save</button>
+        </div>
+      </div>
+    </form>
+
+    <div class="d-flex gap-2 mb-2 align-items-center">
+      <div class="form-check form-switch mb-0">
+        <input class="form-check-input" type="checkbox" id="auto-refresh" checked />
+        <label class="form-check-label small" for="auto-refresh">Auto-refresh (3s)</label>
+      </div>
+      <button type="button" id="refresh-now" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+      </button>
+      <a href="/api/logs/download" class="btn btn-sm btn-outline-secondary ms-auto">
+        <i class="bi bi-download me-1"></i>Download full log
+      </a>
+    </div>
+
+    <div id="logs-file-banner" class="alert alert-warning py-2 small d-none" role="alert">
+      No log file on disk yet — logs will appear here once something is written.
+    </div>
+
+    <div class="table-responsive" style="max-height: 70vh; overflow: auto;">
+      <table class="table table-sm table-hover align-middle font-monospace small mb-0">
+        <thead class="table-light sticky-top">
+          <tr>
+            <th style="width: 12rem;">Time (UTC)</th>
+            <th style="width: 5rem;">Level</th>
+            <th style="width: 5rem;">Source</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody id="logs-body">
+          <tr><td colspan="4" class="text-center text-secondary py-3">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-2 d-flex justify-content-center">
+      <button type="button" id="load-older" class="btn btn-sm btn-outline-secondary d-none">
+        <i class="bi bi-arrow-down me-1"></i>Load older
+      </button>
+    </div>
+  </Card>
+</Layout>
+
+<script>
+  import { toast } from '../scripts/toasts.ts';
+
+  type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+  interface LogEntry {
+    ts: string;
+    level: LogLevel;
+    source: string;
+    pid: number;
+    message: string;
+    meta?: Record<string, unknown>;
+  }
+
+  const body = document.getElementById('logs-body') as HTMLTableSectionElement;
+  const banner = document.getElementById('logs-file-banner') as HTMLDivElement;
+  const loadOlderBtn = document.getElementById('load-older') as HTMLButtonElement;
+  const autoRefresh = document.getElementById('auto-refresh') as HTMLInputElement;
+  const levelThreshold = document.getElementById('f-level-threshold') as HTMLSelectElement;
+  const saveLevelBtn = document.getElementById('save-level') as HTMLButtonElement;
+
+  let oldestLoaded: string | undefined;
+  let refreshTimer: number | undefined;
+  let paused = false;
+
+  function collectFilters(): URLSearchParams {
+    const p = new URLSearchParams();
+    const search = (document.getElementById('f-search') as HTMLInputElement).value.trim();
+    if (search) p.set('search', search);
+    const levels = Array.from(document.querySelectorAll<HTMLInputElement>('.f-level:checked')).map((el) => el.value);
+    if (levels.length > 0 && levels.length < 4) p.set('levels', levels.join(','));
+    const sources = Array.from(document.querySelectorAll<HTMLInputElement>('.f-source:checked')).map((el) => el.value);
+    if (sources.length > 0 && sources.length < 2) p.set('sources', sources.join(','));
+    return p;
+  }
+
+  function levelBadge(level: LogLevel): string {
+    const cls =
+      level === 'error'
+        ? 'text-bg-danger'
+        : level === 'warn'
+        ? 'text-bg-warning'
+        : level === 'debug'
+        ? 'text-bg-secondary'
+        : 'text-bg-info';
+    return `<span class="badge ${cls}">${level}</span>`;
+  }
+
+  function escapeHtml(s: string): string {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function renderRows(entries: LogEntry[], append = false): void {
+    if (!append) body.innerHTML = '';
+    if (!append && entries.length === 0) {
+      body.innerHTML = '<tr><td colspan="4" class="text-center text-secondary py-3">No entries match.</td></tr>';
+      loadOlderBtn.classList.add('d-none');
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const e of entries) {
+      const tr = document.createElement('tr');
+      const msg = e.meta ? `${escapeHtml(e.message)} <span class="text-secondary">${escapeHtml(JSON.stringify(e.meta))}</span>` : escapeHtml(e.message);
+      tr.innerHTML = `<td>${escapeHtml(e.ts.replace('T', ' ').replace('Z', ''))}</td><td>${levelBadge(e.level)}</td><td>${escapeHtml(e.source)}</td><td style="white-space: pre-wrap;">${msg}</td>`;
+      frag.appendChild(tr);
+    }
+    body.appendChild(frag);
+  }
+
+  async function fetchPage(before?: string, append = false): Promise<void> {
+    const params = collectFilters();
+    if (before) params.set('before', before);
+    params.set('limit', '100');
+    const res = await fetch(`/api/logs?${params.toString()}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.fileAvailable) {
+      banner.classList.remove('d-none');
+    } else {
+      banner.classList.add('d-none');
+    }
+    renderRows(data.entries as LogEntry[], append);
+    if (data.nextBefore) {
+      oldestLoaded = data.nextBefore;
+      loadOlderBtn.classList.remove('d-none');
+    } else if (!append) {
+      oldestLoaded = undefined;
+      loadOlderBtn.classList.add('d-none');
+    } else {
+      loadOlderBtn.classList.add('d-none');
+    }
+  }
+
+  function scheduleRefresh(): void {
+    if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
+    refreshTimer = undefined;
+    if (!autoRefresh.checked) return;
+    refreshTimer = window.setInterval(() => {
+      if (paused) return;
+      fetchPage(undefined, false);
+    }, 3000);
+  }
+
+  document.getElementById('refresh-now')!.addEventListener('click', () => fetchPage(undefined, false));
+  autoRefresh.addEventListener('change', scheduleRefresh);
+
+  document.getElementById('logs-filter')!.addEventListener('input', () => fetchPage(undefined, false));
+  document.querySelectorAll('.f-level, .f-source').forEach((el) => {
+    el.addEventListener('change', () => fetchPage(undefined, false));
+  });
+
+  loadOlderBtn.addEventListener('click', () => {
+    if (oldestLoaded) fetchPage(oldestLoaded, true);
+  });
+
+  body.addEventListener('mouseenter', () => {
+    paused = true;
+  });
+  body.addEventListener('mouseleave', () => {
+    paused = false;
+  });
+
+  saveLevelBtn.addEventListener('click', async () => {
+    const value = levelThreshold.value;
+    const res = await fetch('/api/settings/general', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ logLevel: value }),
+    });
+    if (res.ok) {
+      toast(`Log level set to ${value}.`, 'success');
+      fetchPage(undefined, false);
+    } else {
+      const j = await res.json().catch(() => ({}));
+      toast(j.error || 'Failed to save log level', 'danger');
+    }
+  });
+
+  fetchPage(undefined, false);
+  scheduleRefresh();
+</script>

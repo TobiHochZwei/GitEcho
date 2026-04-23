@@ -2,6 +2,7 @@
 import Layout from '../../layouts/Layout.astro';
 import Card from '../../components/Card.astro';
 import { listRepoUrls } from '../../lib/repos-file.js';
+import { loadSettings } from '../../lib/settings.js';
 
 let repos: { url: string; provider?: string }[] = [];
 let loadError: string | null = null;
@@ -10,6 +11,11 @@ try {
 } catch (err) {
   loadError = (err as Error).message;
 }
+
+const settings = loadSettings();
+const githubExcluded = settings.github?.excludedUrls ?? [];
+const adoExcluded = settings.azureDevOps?.excludedUrls ?? [];
+const hasExclusions = githubExcluded.length + adoExcluded.length > 0;
 ---
 <Layout
   title="GitEcho — Settings · Repositories"
@@ -73,10 +79,87 @@ try {
       </div>
     )}
   </Card>
+
+  <Card title={`Excluded from auto-discovery (${githubExcluded.length + adoExcluded.length})`} icon="bi-slash-circle">
+    {!hasExclusions ? (
+      <p class="text-secondary mb-0">
+        Nothing blacklisted. When you remove a repo you can choose to also exclude it from
+        auto-discovery so it won't come back next cycle.
+      </p>
+    ) : (
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead>
+            <tr><th>Provider</th><th>URL</th><th class="text-end">Action</th></tr>
+          </thead>
+          <tbody>
+            {githubExcluded.map((u) => (
+              <tr>
+                <td><span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub</span></td>
+                <td><code>{u}</code></td>
+                <td class="text-end">
+                  <button class="btn btn-sm btn-outline-success" data-url={u} data-action="unexclude">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Allow again
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {adoExcluded.map((u) => (
+              <tr>
+                <td><span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps</span></td>
+                <td><code>{u}</code></td>
+                <td class="text-end">
+                  <button class="btn btn-sm btn-outline-success" data-url={u} data-action="unexclude">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Allow again
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </Card>
 </Layout>
+
+<!-- Delete confirmation modal -->
+<div class="modal fade" id="deleteRepoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-trash me-1"></i>Remove repository</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">You are about to remove:</p>
+        <p class="mb-3"><code id="deleteRepoUrl">—</code></p>
+        <p class="text-secondary small mb-3">
+          Existing local backup files will be kept. Only the entry in <code>repos.txt</code> is removed.
+        </p>
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" id="deleteRepoExclude" />
+          <label class="form-check-label" for="deleteRepoExclude">
+            Also exclude from auto-discovery (blacklist)
+          </label>
+          <div class="form-text">
+            Without this, an enabled <em>Auto-append</em> will re-add the repo to
+            <code>repos.txt</code> on the next discovery cycle.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="deleteRepoConfirm">
+          <i class="bi bi-trash me-1"></i>Remove
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
   import { toast } from '../../scripts/toasts.ts';
+  import { Modal } from 'bootstrap';
 
   const form = document.getElementById('add-form') as HTMLFormElement | null;
   form?.addEventListener('submit', async (e) => {
@@ -97,17 +180,65 @@ try {
     }
   });
 
+  const modalEl = document.getElementById('deleteRepoModal');
+  const urlEl = document.getElementById('deleteRepoUrl');
+  const excludeEl = document.getElementById('deleteRepoExclude') as HTMLInputElement | null;
+  const confirmBtn = document.getElementById('deleteRepoConfirm') as HTMLButtonElement | null;
+  const deleteModal = modalEl ? new Modal(modalEl) : null;
+  let pendingUrl: string | null = null;
+
   document.querySelectorAll<HTMLButtonElement>('button[data-action="delete"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      pendingUrl = btn.getAttribute('data-url');
+      if (!pendingUrl || !deleteModal || !urlEl || !excludeEl) return;
+      urlEl.textContent = pendingUrl;
+      excludeEl.checked = false;
+      deleteModal.show();
+    });
+  });
+
+  confirmBtn?.addEventListener('click', async () => {
+    if (!pendingUrl) return;
+    const exclude = excludeEl?.checked ? '1' : '0';
+    confirmBtn.disabled = true;
+    try {
+      const res = await fetch(
+        '/api/repos?url=' + encodeURIComponent(pendingUrl) + '&exclude=' + exclude,
+        { method: 'DELETE' },
+      );
+      if (res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast(j.excluded ? 'Removed and blacklisted' : 'Repository removed', 'success');
+        setTimeout(() => location.reload(), 400);
+      } else {
+        const j = await res.json().catch(() => ({}));
+        toast(j.error || 'Failed to remove', 'danger');
+      }
+    } finally {
+      confirmBtn.disabled = false;
+      deleteModal?.hide();
+    }
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('button[data-action="unexclude"]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const url = btn.getAttribute('data-url');
       if (!url) return;
-      if (!confirm('Remove ' + url + ' from repos.txt?')) return;
-      const res = await fetch('/api/repos?url=' + encodeURIComponent(url), { method: 'DELETE' });
-      if (res.ok) {
-        toast('Repository removed', 'success');
-        setTimeout(() => location.reload(), 400);
-      } else {
-        toast('Failed to remove', 'danger');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/repos', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, unexclude: true }),
+        });
+        if (res.ok) {
+          toast('Removed from blacklist', 'success');
+          setTimeout(() => location.reload(), 400);
+        } else {
+          toast('Failed to update blacklist', 'danger');
+        }
+      } finally {
+        btn.disabled = false;
       }
     });
   });

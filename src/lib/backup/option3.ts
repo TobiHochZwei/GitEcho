@@ -27,6 +27,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { logger } from '../logger.js';
 
 import { getRepositoryByUrl } from '../database';
 import { isUpstreamUnavailable } from '../plugins/errors';
@@ -97,7 +98,7 @@ export async function backupOption3(
         // source of truth, just nothing to snapshot.
         const message = err instanceof Error ? err.message : String(err);
         if (/HEAD|does not exist|did not match|bad revision/i.test(message)) {
-          console.warn(
+          logger.warn(
             `[option3] Skipping ZIP for ${repo.url}: archive failed (likely empty repo). ${message}`,
           );
           return { success: true };

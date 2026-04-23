@@ -15,6 +15,7 @@ import {
   type StorageUsage,
   type RunHistoryPoint,
 } from '../lib/stats.js';
+import { humanizeCron } from '../lib/cron-humanize.js';
 
 let stats: ExtendedStats;
 let recentRuns: any[] = [];
@@ -56,6 +57,8 @@ const modeLabel =
     : config.backupMode === 'option3'
       ? 'Mirror + ZIP (option3)'
       : 'ZIP Snapshots (option2)';
+
+const cronHuman = humanizeCron(config.cronSchedule);
 
 function patBadge(days: number | null): { variant: string; label: string } {
   if (days === null) return { variant: 'secondary', label: 'No expiry set' };
@@ -113,6 +116,20 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
     </div>
     <div class="col-12 col-sm-6 col-md-3">
       <SmallBox value={stats.unavailableCount} label="Unavailable upstream" icon="bi-cloud-slash" variant={stats.unavailableCount > 0 ? 'danger' : 'secondary'} href="/repos" footer="Review repos" />
+    </div>
+  </div>
+
+  <!-- Schedule info -->
+  <div class="row">
+    <div class="col-12">
+      <div class="alert alert-info d-flex align-items-center mb-3" role="alert">
+        <i class="bi bi-clock-history me-2 fs-4"></i>
+        <div class="flex-grow-1">
+          <strong>Backup schedule:</strong> {cronHuman}
+          <span class="ms-2 text-secondary small">(<code>{config.cronSchedule}</code>)</span>
+        </div>
+        <a href="/settings/general" class="btn btn-sm btn-outline-info ms-2">Change</a>
+      </div>
     </div>
   </div>
 

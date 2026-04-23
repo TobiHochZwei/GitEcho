@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path';
 
 import { decryptSecret, encryptSecret, isEncryptedSecret } from './secrets.js';
 import type { EncryptedSecret } from './secrets.js';
+import { logger, setLevel } from './logger.js';
 
 export interface DiscoveryFilterSettings {
   /** Case-insensitive list of owners/orgs to allow. Empty/undefined = no allow filter. */
@@ -35,6 +36,12 @@ export interface ProviderSettings {
   notifyOnNewRepo?: boolean;
   /** Filters applied to the discovery result before persistence. */
   filters?: DiscoveryFilterSettings;
+  /**
+   * Repository URLs that must never be auto-discovered again. Populated from
+   * the "Remove & exclude" action on the Repositories page. Matched case-
+   * insensitively against RepositoryInfo.url.
+   */
+  excludedUrls?: string[];
 }
 
 export interface SmtpSettings {
@@ -53,6 +60,8 @@ export interface PersistedSettings {
   smtp?: SmtpSettings;
   notifyOnSuccess?: boolean;
   patExpiryWarnDays?: number;
+  /** Logging verbosity surfaced in /logs UI. Overrides LOG_LEVEL env. */
+  logLevel?: 'debug' | 'info' | 'warn' | 'error';
 }
 
 export interface PersistedSecrets {
@@ -100,7 +109,7 @@ function readJsonIfFresh<T>(path: string, cache: Map<string, CacheEntry<T>>): T 
     cache.set(path, { mtimeMs: stat.mtimeMs, value });
     return value;
   } catch (err) {
-    console.error(`[settings] Failed to parse ${path}:`, err);
+    logger.error(`[settings] Failed to parse ${path}:`, err);
     return undefined;
   }
 }
@@ -113,12 +122,49 @@ function atomicWriteJson(path: string, data: unknown): void {
 }
 
 export function loadSettings(): PersistedSettings {
-  return readJsonIfFresh<PersistedSettings>(settingsPath(), settingsCache) ?? {};
+  const settings = readJsonIfFresh<PersistedSettings>(settingsPath(), settingsCache) ?? {};
+  // Sync the logger level with the UI-managed override. Undefined clears it
+  // so the logger falls back to the LOG_LEVEL env var.
+  setLevel(settings.logLevel);
+  return settings;
 }
 
 export function saveSettings(next: PersistedSettings): void {
   atomicWriteJson(settingsPath(), next);
   settingsCache.delete(settingsPath());
+}
+
+/** Add a repository URL to a provider's discovery blacklist. Idempotent. */
+export function addExcludedUrl(provider: 'github' | 'azureDevOps', url: string): void {
+  const s = loadSettings();
+  const p = s[provider] ?? {};
+  const normalized = url.trim();
+  const set = new Set((p.excludedUrls ?? []).map((u) => u.toLowerCase()));
+  if (set.has(normalized.toLowerCase())) return;
+  const list = [...(p.excludedUrls ?? []), normalized];
+  saveSettings({ ...s, [provider]: { ...p, excludedUrls: list } });
+}
+
+/** Remove a URL from a provider's blacklist. Returns true when something was removed. */
+export function removeExcludedUrl(provider: 'github' | 'azureDevOps', url: string): boolean {
+  const s = loadSettings();
+  const p = s[provider];
+  if (!p?.excludedUrls || p.excludedUrls.length === 0) return false;
+  const lower = url.trim().toLowerCase();
+  const next = p.excludedUrls.filter((u) => u.toLowerCase() !== lower);
+  if (next.length === p.excludedUrls.length) return false;
+  saveSettings({ ...s, [provider]: { ...p, excludedUrls: next } });
+  return true;
+}
+
+/** Return true when a URL is blacklisted under any provider. */
+export function isUrlExcluded(url: string): boolean {
+  const s = loadSettings();
+  const lower = url.trim().toLowerCase();
+  return (
+    (s.github?.excludedUrls ?? []).some((u) => u.toLowerCase() === lower) ||
+    (s.azureDevOps?.excludedUrls ?? []).some((u) => u.toLowerCase() === lower)
+  );
 }
 
 export function loadSecrets(): PersistedSecrets {
@@ -139,7 +185,7 @@ export function readSecret(key: keyof PersistedSecrets): string | undefined {
   try {
     return decryptSecret(blob);
   } catch (err) {
-    console.error(`[settings] Failed to decrypt ${key}:`, (err as Error).message);
+    logger.error(`[settings] Failed to decrypt ${key}:`, (err as Error).message);
     return undefined;
   }
 }

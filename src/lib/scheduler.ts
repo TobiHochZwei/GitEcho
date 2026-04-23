@@ -9,30 +9,31 @@ import {
 } from './smtp.js';
 import type { BackupSummary } from './smtp.js';
 import { tryAcquireBackupLock } from './backup-lock.js';
+import { logger } from './logger.js';
 
 let scheduledTask: ScheduledTask | null = null;
 let isRunning = false;
 
 export async function executeBackupCycle(): Promise<void> {
   if (isRunning) {
-    console.log('[Scheduler] Backup already running in this process, skipping cycle');
+    logger.info('[Scheduler] Backup already running in this process, skipping cycle');
     return;
   }
   const handle = tryAcquireBackupLock();
   if (!handle) {
-    console.log('[Scheduler] Another process is already running a backup, skipping cycle');
+    logger.info('[Scheduler] Another process is already running a backup, skipping cycle');
     return;
   }
 
   isRunning = true;
-  console.log(`[Scheduler] Starting backup cycle at ${new Date().toISOString()}`);
+  logger.info(`[Scheduler] Starting backup cycle at ${new Date().toISOString()}`);
 
   try {
     await checkAndNotifyPatExpiry();
 
     const result = await runBackup();
 
-    console.log(
+    logger.info(
       `[Scheduler] Backup complete: ${result.successCount}/${result.totalRepos} repos succeeded, ` +
         `${result.unavailableCount} unavailable`,
     );
@@ -70,7 +71,7 @@ export async function executeBackupCycle(): Promise<void> {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`[Scheduler] Backup cycle failed: ${message}`);
+    logger.error(`[Scheduler] Backup cycle failed: ${message}`);
     await notifyCriticalError(message, 'Backup cycle crashed');
   } finally {
     isRunning = false;
@@ -83,26 +84,26 @@ export function startScheduler(): void {
   const schedule = config.cronSchedule;
 
   if (!cronValidate(schedule)) {
-    console.error(`[Scheduler] Invalid cron schedule: ${schedule}`);
+    logger.error(`[Scheduler] Invalid cron schedule: ${schedule}`);
     return;
   }
 
-  console.log(`[Scheduler] Starting with schedule: ${schedule}`);
+  logger.info(`[Scheduler] Starting with schedule: ${schedule}`);
 
   scheduledTask = cronSchedule(schedule, () => {
     executeBackupCycle().catch((err) => {
-      console.error('[Scheduler] Unhandled error in backup cycle:', err);
+      logger.error('[Scheduler] Unhandled error in backup cycle:', err);
     });
   });
 
-  console.log('[Scheduler] Scheduler started successfully');
+  logger.info('[Scheduler] Scheduler started successfully');
 }
 
 export function stopScheduler(): void {
   if (scheduledTask) {
     scheduledTask.stop();
     scheduledTask = null;
-    console.log('[Scheduler] Scheduler stopped');
+    logger.info('[Scheduler] Scheduler stopped');
   }
 }
 

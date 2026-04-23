@@ -5,6 +5,7 @@
 
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync, openSync, closeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { logger } from './logger.js';
 
 const LOCK_FILE = '.backup.lock';
 
@@ -77,7 +78,7 @@ export function tryAcquireBackupLock(): LockHandle | undefined {
   // Lock exists — check if it's stale
   const existing = readLock(path);
   if (!existing || !isPidAlive(existing.pid)) {
-    console.warn('[backup-lock] Removing stale lock for pid', existing?.pid);
+    logger.warn('[backup-lock] Removing stale lock for pid', existing?.pid);
     try {
       unlinkSync(path);
     } catch {
@@ -107,7 +108,7 @@ function makeHandle(path: string, body: LockBody): LockHandle {
           }
         }
       } catch (err) {
-        console.error('[backup-lock] Failed to release lock:', err);
+        logger.error('[backup-lock] Failed to release lock:', err);
       }
     },
   };

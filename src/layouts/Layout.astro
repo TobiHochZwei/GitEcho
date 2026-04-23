@@ -10,7 +10,7 @@ import Toasts from '../components/Toasts.astro';
 interface Crumb { label: string; href?: string; }
 interface Props {
   title: string;
-  active?: 'dashboard' | 'repos' | 'runs' | 'settings';
+  active?: 'dashboard' | 'repos' | 'runs' | 'logs' | 'settings';
   settingsActive?: 'index' | 'general' | 'providers' | 'repos' | 'smtp' | null;
   breadcrumbs?: Crumb[];
   pageTitle?: string;

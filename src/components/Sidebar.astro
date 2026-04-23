@@ -1,11 +1,12 @@
 ---
+import pkg from '../../package.json';
 interface Props {
-  active?: 'dashboard' | 'repos' | 'runs' | 'settings';
+  active?: 'dashboard' | 'repos' | 'runs' | 'logs' | 'settings';
   settingsActive?: 'index' | 'general' | 'providers' | 'repos' | 'smtp' | null;
   appVersion?: string;
   backupMode?: string;
 }
-const { active, settingsActive = null, appVersion = '1.0.0', backupMode = '' } = Astro.props;
+const { active, settingsActive = null, appVersion = pkg.version, backupMode = '' } = Astro.props;
 const isSettings = active === 'settings';
 ---
 <aside class="app-sidebar bg-body-secondary shadow" data-bs-theme="dark">
@@ -40,6 +41,12 @@ const isSettings = active === 'settings';
           <a href="/runs" class={`nav-link ${active === 'runs' ? 'active' : ''}`}>
             <i class="nav-icon bi bi-clock-history"></i>
             <p>Backup Runs</p>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="/logs" class={`nav-link ${active === 'logs' ? 'active' : ''}`}>
+            <i class="nav-icon bi bi-journal-text"></i>
+            <p>Logs</p>
           </a>
         </li>
         <li class={`nav-item ${isSettings ? 'menu-open' : ''}`}>

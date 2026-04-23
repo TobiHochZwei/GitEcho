@@ -2,8 +2,10 @@
 import Layout from '../../layouts/Layout.astro';
 import Card from '../../components/Card.astro';
 import { getConfig } from '../../lib/config.js';
+import { humanizeCron } from '../../lib/cron-humanize.js';
 
 const cfg = getConfig();
+const cronHuman = humanizeCron(cfg.cronSchedule);
 ---
 <Layout
   title="GitEcho — Settings · General"
@@ -32,7 +34,10 @@ const cfg = getConfig();
           <div class="mb-3">
             <label class="form-label fw-semibold" for="cronSchedule">Cron schedule</label>
             <input id="cronSchedule" name="cronSchedule" class="form-control font-monospace" value={cfg.cronSchedule} />
-            <div class="form-text">5 or 6 fields. Restart the worker container for this to take effect.</div>
+            <div class="form-text">
+              <span id="cronHuman" class="fw-semibold text-info"><i class="bi bi-clock me-1"></i>{cronHuman}</span>
+              <br />5 or 6 fields. Restart the worker container for this to take effect.
+            </div>
           </div>
           <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save</button>
         </form>
@@ -53,10 +58,32 @@ const cfg = getConfig();
 
 <script>
   import { toast } from '../../scripts/toasts.ts';
+  import cronstrue from 'cronstrue';
 
   const form = document.getElementById('general-form') as HTMLFormElement | null;
   const triggerBtn = document.getElementById('trigger-btn') as HTMLButtonElement | null;
   const statusEl = document.getElementById('status');
+  const cronInput = document.getElementById('cronSchedule') as HTMLInputElement | null;
+  const cronHuman = document.getElementById('cronHuman');
+
+  function updateCronHuman(): void {
+    if (!cronInput || !cronHuman) return;
+    const v = cronInput.value.trim();
+    let text = 'No schedule set';
+    let cls = 'fw-semibold text-muted';
+    if (v) {
+      try {
+        text = cronstrue.toString(v, { use24HourTimeFormat: true, verbose: false });
+        cls = 'fw-semibold text-info';
+      } catch {
+        text = 'Invalid cron expression';
+        cls = 'fw-semibold text-danger';
+      }
+    }
+    cronHuman.className = cls;
+    cronHuman.innerHTML = `<i class="bi bi-clock me-1"></i>${text}`;
+  }
+  cronInput?.addEventListener('input', updateCronHuman);
 
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();

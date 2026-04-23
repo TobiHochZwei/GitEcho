@@ -1,38 +1,41 @@
+process.env.GITECHO_PROCESS = 'worker';
 import { loadConfig } from '../src/lib/config.js';
 import { initDatabase } from '../src/lib/database.js';
+import { logger } from '../src/lib/logger.js';
 import { registerAllPlugins } from '../src/lib/plugins/register.js';
 import { startScheduler, executeBackupCycle } from '../src/lib/scheduler.js';
+import { humanizeCron } from '../src/lib/cron-humanize.js';
 
 async function main(): Promise<void> {
-  console.log('[Worker] GitEcho background worker starting...');
+  logger.info('[Worker] GitEcho background worker starting...');
 
   try {
     const config = loadConfig();
-    console.log(`[Worker] Backup mode: ${config.backupMode}`);
-    console.log(`[Worker] Cron schedule: ${config.cronSchedule}`);
+    logger.info(`[Worker] Backup mode: ${config.backupMode}`);
+    logger.info(`[Worker] Cron schedule: ${config.cronSchedule} (${humanizeCron(config.cronSchedule)})`);
 
     initDatabase(config.dataDir);
-    console.log('[Worker] Database initialized');
+    logger.info('[Worker] Database initialized');
 
     registerAllPlugins();
-    console.log('[Worker] Plugins registered');
+    logger.info('[Worker] Plugins registered');
 
-    console.log('[Worker] Running initial backup...');
+    logger.info('[Worker] Running initial backup...');
     await executeBackupCycle();
 
     startScheduler();
 
     process.on('SIGTERM', () => {
-      console.log('[Worker] Received SIGTERM, shutting down...');
+      logger.info('[Worker] Received SIGTERM, shutting down...');
       process.exit(0);
     });
 
     process.on('SIGINT', () => {
-      console.log('[Worker] Received SIGINT, shutting down...');
+      logger.info('[Worker] Received SIGINT, shutting down...');
       process.exit(0);
     });
   } catch (error) {
-    console.error('[Worker] Fatal error:', error);
+    logger.error('[Worker] Fatal error:', error);
     process.exit(1);
   }
 }

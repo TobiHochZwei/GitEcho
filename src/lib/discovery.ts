@@ -21,6 +21,7 @@ import { getPluginRegistry } from './plugins/interface.js';
 import { addRepoUrl } from './repos-file.js';
 import type { DiscoveryFilterSettings } from './settings.js';
 import { notifyNewRepositories } from './smtp.js';
+import { logger } from './logger.js';
 
 export type DiscoveryProvider = 'github' | 'azureDevOps';
 
@@ -143,20 +144,25 @@ export async function runDiscovery(opts: RunDiscoveryOptions = {}): Promise<Disc
     };
 
     try {
-      console.log(`[discovery] Authenticating with ${plugin.displayName}...`);
+      logger.info(`[discovery] Authenticating with ${plugin.displayName}...`);
       const authOk = await plugin.authenticate();
       providerResult.authenticated = authOk;
       if (!authOk) {
-        console.error(`[discovery] Authentication failed for ${plugin.displayName}`);
+        logger.error(`[discovery] Authentication failed for ${plugin.displayName}`);
         result.providers.push(providerResult);
         continue;
       }
 
-      console.log(`[discovery] Listing repositories from ${plugin.displayName}...`);
+      logger.info(`[discovery] Listing repositories from ${plugin.displayName}...`);
       const listed = await plugin.listRepositories();
-      const { kept, dropped } = applyFilters(listed, filters);
+      const excluded = new Set(
+        (providerCfg?.excludedUrls ?? []).map((u) => u.toLowerCase()),
+      );
+      const afterBlacklist = listed.filter((r) => !excluded.has(r.url.toLowerCase()));
+      const blacklistedCount = listed.length - afterBlacklist.length;
+      const { kept, dropped } = applyFilters(afterBlacklist, filters);
       providerResult.total = kept.length;
-      providerResult.filteredOut = dropped;
+      providerResult.filteredOut = dropped + blacklistedCount;
 
       const shouldAppend = opts.appendToReposTxt ?? providerCfg?.autoAppendToReposTxt ?? false;
 
@@ -179,7 +185,7 @@ export async function runDiscovery(opts: RunDiscoveryOptions = {}): Promise<Disc
         }
       }
 
-      console.log(
+      logger.info(
         `[discovery] ${plugin.displayName}: ${providerResult.total} repos (${providerResult.newlyDiscovered.length} new, ${providerResult.filteredOut} filtered out)`,
       );
 
@@ -196,7 +202,7 @@ export async function runDiscovery(opts: RunDiscoveryOptions = {}): Promise<Disc
             })),
           );
         } catch (err) {
-          console.warn(
+          logger.warn(
             `[discovery] Failed to send new-repo notification for ${plugin.displayName}:`,
             err,
           );
@@ -204,7 +210,7 @@ export async function runDiscovery(opts: RunDiscoveryOptions = {}): Promise<Disc
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[discovery] Error discovering from ${plugin.displayName}: ${message}`);
+      logger.error(`[discovery] Error discovering from ${plugin.displayName}: ${message}`);
     }
 
     result.providers.push(providerResult);

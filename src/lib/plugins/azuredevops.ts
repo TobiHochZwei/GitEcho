@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { logger } from '../logger.js';
 
 import { getConfig } from '../config.js';
 import { rethrowAsUnavailableIfMatch } from './errors.js';
@@ -84,18 +85,47 @@ async function readReposTxt(): Promise<
   return entries;
 }
 
-/** Discover the organization URL from repos.txt or the AZUREDEVOPS_ORG env var. */
+/**
+ * Discover the organization URL. Order of precedence:
+ *   1. settings.json via getConfig() (UI-managed — highest priority)
+ *   2. AZUREDEVOPS_ORG environment variable
+ *   3. First Azure DevOps entry in /config/repos.txt
+ */
 async function discoverOrgUrl(): Promise<string | undefined> {
+  const cfgOrg = getConfig().azureDevOps?.org;
+  if (cfgOrg) return normalizeOrgUrl(cfgOrg);
+
   const envOrg = process.env.AZUREDEVOPS_ORG;
-  if (envOrg) {
-    // Allow both a bare org name and a full URL
-    return envOrg.startsWith('https://') ? envOrg : `https://dev.azure.com/${envOrg}`;
-  }
+  if (envOrg) return normalizeOrgUrl(envOrg);
 
   const entries = await readReposTxt();
   if (entries.length > 0) {
     return `https://dev.azure.com/${entries[0].org}`;
   }
+
+  return undefined;
+}
+
+/**
+ * Accept any of the common spellings users tend to paste into the UI and
+ * return a canonical `https://dev.azure.com/<org>` URL.
+ *   - "myorg"                                   -> https://dev.azure.com/myorg
+ *   - "https://dev.azure.com/myorg"             -> same
+ *   - "https://dev.azure.com/myorg/"            -> same (trailing slash stripped)
+ *   - "https://myorg.visualstudio.com"          -> https://dev.azure.com/myorg
+ */
+function normalizeOrgUrl(input: string): string | undefined {
+  const trimmed = input.trim().replace(/\/+$/, '');
+  if (!trimmed) return undefined;
+
+  const devAzure = trimmed.match(/^https?:\/\/dev\.azure\.com\/([^/]+)/i);
+  if (devAzure) return `https://dev.azure.com/${devAzure[1]}`;
+
+  const legacyVs = trimmed.match(/^https?:\/\/([^./]+)\.visualstudio\.com/i);
+  if (legacyVs) return `https://dev.azure.com/${legacyVs[1]}`;
+
+  // Bare org name — no scheme, no slashes
+  if (!/[/:\s]/.test(trimmed)) return `https://dev.azure.com/${trimmed}`;
 
   return undefined;
 }
@@ -127,7 +157,7 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
 
     const orgUrl = await discoverOrgUrl();
     if (!orgUrl) {
-      console.warn('[azuredevops] No organization URL found — cannot authenticate');
+      logger.warn('[azuredevops] No organization URL found — cannot authenticate');
       return false;
     }
 
@@ -139,7 +169,7 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
       );
       return true;
     } catch (error) {
-      console.error('[azuredevops] Authentication failed:', error);
+      logger.error('[azuredevops] Authentication failed:', error);
       return false;
     }
   }
@@ -219,14 +249,14 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
               });
             }
           } catch (error) {
-            console.warn(
+            logger.warn(
               `[azuredevops] Failed to list repos for project "${project.name}":`,
               error,
             );
           }
         }
       } catch (error) {
-        console.warn('[azuredevops] Failed to list projects:', error);
+        logger.warn('[azuredevops] Failed to list projects:', error);
       }
     }
 
@@ -252,7 +282,7 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
     try {
       await execCommand('git', ['-C', repoDir, 'pull', '--ff-only']);
     } catch (error) {
-      console.warn(
+      logger.warn(
         `[azuredevops] Fast-forward pull failed for "${repoDir}" (branches may have diverged):`,
         error instanceof Error ? error.message : error,
       );

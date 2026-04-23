@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { getConfig } from './config.js';
+import { logger } from './logger.js';
 
 export interface BackupSummary {
   startedAt: string;
@@ -77,7 +78,7 @@ function escapeHtml(text: string): string {
 export async function sendNotification(subject: string, htmlBody: string): Promise<void> {
   const transport = getTransporter();
   if (!transport) {
-    console.debug('[smtp] SMTP not configured — skipping notification');
+    logger.debug('[smtp] SMTP not configured — skipping notification');
     return;
   }
 
@@ -90,9 +91,9 @@ export async function sendNotification(subject: string, htmlBody: string): Promi
       subject,
       html: htmlBody,
     });
-    console.info(`[smtp] Sent: ${subject}`);
+    logger.info(`[smtp] Sent: ${subject}`);
   } catch (err) {
-    console.error(`[smtp] Failed to send email "${subject}":`, err);
+    logger.error(`[smtp] Failed to send email "${subject}":`, err);
   }
 }
 
@@ -147,7 +148,7 @@ export async function notifyCriticalError(error: string, context?: string): Prom
 export async function notifyBackupSuccess(summary: BackupSummary): Promise<void> {
   const { notifyOnSuccess } = getConfig();
   if (!notifyOnSuccess) {
-    console.debug('[smtp] NOTIFY_ON_SUCCESS is disabled — skipping success notification');
+    logger.debug('[smtp] NOTIFY_ON_SUCCESS is disabled — skipping success notification');
     return;
   }
 

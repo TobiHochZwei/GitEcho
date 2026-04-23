@@ -16,6 +16,7 @@ import type { RepositoryInfo, ProviderPlugin } from '../plugins/interface';
 import { backupOption1 } from './option1';
 import { backupOption2 } from './option2';
 import { backupOption3 } from './option3';
+import { logger } from '../logger.js';
 
 export interface BackupResult {
   runId: number;
@@ -34,7 +35,7 @@ export async function runBackup(): Promise<BackupResult> {
   const config = getConfig();
   const { backupMode, backupsDir } = config;
 
-  console.log(`[backup] Starting backup run (mode: ${backupMode})`);
+  logger.info(`[backup] Starting backup run (mode: ${backupMode})`);
 
   // Create backup run in DB
   const run = createBackupRun(backupMode);
@@ -54,7 +55,7 @@ export async function runBackup(): Promise<BackupResult> {
 
   for (const provider of discovery.providers) {
     if (!provider.authenticated) {
-      console.error(`[backup] Skipping ${provider.provider}: authentication failed`);
+      logger.error(`[backup] Skipping ${provider.provider}: authentication failed`);
     }
   }
 
@@ -64,7 +65,7 @@ export async function runBackup(): Promise<BackupResult> {
   // Process repos sequentially to avoid overwhelming git/network
   for (const { plugin, repo } of allRepos) {
     const repoLabel = `${repo.provider}/${repo.owner}/${repo.name}`;
-    console.log(`[backup] Backing up ${repoLabel}...`);
+    logger.info(`[backup] Backing up ${repoLabel}...`);
 
     const dbRepo = upsertRepository({
       url: repo.url,
@@ -85,7 +86,7 @@ export async function runBackup(): Promise<BackupResult> {
             status: 'success',
             completed_at: new Date().toISOString(),
           });
-          console.log(`[backup] ✓ ${repoLabel}`);
+          logger.info(`[backup] ✓ ${repoLabel}`);
         } else if (result.unavailable) {
           unavailableCount++;
           unavailable.push({ repo: repoLabel, url: repo.url, error: result.error ?? 'Unknown error' });
@@ -95,7 +96,7 @@ export async function runBackup(): Promise<BackupResult> {
             error: result.error ?? null,
             completed_at: new Date().toISOString(),
           });
-          console.warn(`[backup] ⚠ ${repoLabel} unavailable: ${result.error}`);
+          logger.warn(`[backup] ⚠ ${repoLabel} unavailable: ${result.error}`);
         } else {
           failedCount++;
           failures.push({ repo: repoLabel, error: result.error ?? 'Unknown error' });
@@ -105,7 +106,7 @@ export async function runBackup(): Promise<BackupResult> {
             error: result.error ?? null,
             completed_at: new Date().toISOString(),
           });
-          console.error(`[backup] ✗ ${repoLabel}: ${result.error}`);
+          logger.error(`[backup] ✗ ${repoLabel}: ${result.error}`);
         }
       } else {
         // option2 and option3 share the same {checksum, zipPath} result shape.
@@ -122,7 +123,7 @@ export async function runBackup(): Promise<BackupResult> {
             zip_path: result.zipPath ?? null,
             completed_at: new Date().toISOString(),
           });
-          console.log(`[backup] ✓ ${repoLabel}${result.zipPath ? ' (new snapshot)' : ' (unchanged)'}`);
+          logger.info(`[backup] ✓ ${repoLabel}${result.zipPath ? ' (new snapshot)' : ' (unchanged)'}`);
         } else if (result.unavailable) {
           unavailableCount++;
           unavailable.push({ repo: repoLabel, url: repo.url, error: result.error ?? 'Unknown error' });
@@ -132,7 +133,7 @@ export async function runBackup(): Promise<BackupResult> {
             error: result.error ?? null,
             completed_at: new Date().toISOString(),
           });
-          console.warn(`[backup] ⚠ ${repoLabel} unavailable: ${result.error}`);
+          logger.warn(`[backup] ⚠ ${repoLabel} unavailable: ${result.error}`);
         } else {
           failedCount++;
           failures.push({ repo: repoLabel, error: result.error ?? 'Unknown error' });
@@ -142,7 +143,7 @@ export async function runBackup(): Promise<BackupResult> {
             error: result.error ?? null,
             completed_at: new Date().toISOString(),
           });
-          console.error(`[backup] ✗ ${repoLabel}: ${result.error}`);
+          logger.error(`[backup] ✗ ${repoLabel}: ${result.error}`);
         }
       }
     } catch (err) {
@@ -156,7 +157,7 @@ export async function runBackup(): Promise<BackupResult> {
           error: message,
           completed_at: new Date().toISOString(),
         });
-        console.warn(`[backup] ⚠ ${repoLabel} unavailable: ${message}`);
+        logger.warn(`[backup] ⚠ ${repoLabel} unavailable: ${message}`);
       } else {
         failedCount++;
         failures.push({ repo: repoLabel, error: message });
@@ -166,7 +167,7 @@ export async function runBackup(): Promise<BackupResult> {
           error: message,
           completed_at: new Date().toISOString(),
         });
-        console.error(`[backup] ✗ ${repoLabel}: ${message}`);
+        logger.error(`[backup] ✗ ${repoLabel}: ${message}`);
       }
     }
   }
@@ -194,7 +195,7 @@ export async function runBackup(): Promise<BackupResult> {
     error_summary: errorSummary,
   });
 
-  console.log(
+  logger.info(
     `[backup] Completed: ${successCount}/${allRepos.length} succeeded, ${failedCount} failed, ${unavailableCount} unavailable`,
   );
 

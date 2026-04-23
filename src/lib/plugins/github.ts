@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
+import { logger } from '../logger.js';
 
 import { getConfig } from '../config.js';
 import { rethrowAsUnavailableIfMatch } from './errors.js';
@@ -91,7 +92,7 @@ export class GitHubPlugin implements ProviderPlugin {
     try {
       await execCommand('git', ['-C', repoDir, 'pull', '--ff-only']);
     } catch (error) {
-      console.warn(
+      logger.warn(
         `[github] pull --ff-only failed for ${repoDir}, history may have diverged: ${(error as Error).message}`,
       );
     }

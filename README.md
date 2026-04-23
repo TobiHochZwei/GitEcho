@@ -139,6 +139,7 @@ successful backup transitions the repository back to `success`.
 | `BACKUPS_DIR` | No | Override the backups mount path (cloned repos / ZIPs) | `/backups` |
 | `UI_USER` | No (recommended) | Username for the Web UI HTTP Basic Auth. Auth is enforced only when both `UI_USER` and `UI_PASS` are set. | `admin` |
 | `UI_PASS` | No (recommended) | Password for the Web UI HTTP Basic Auth | `change-me` |
+| `PUBLIC_URL` | No (required behind reverse proxies) | Comma-separated list of URLs under which the UI is reachable. Browser requests whose `Origin` matches an entry here are accepted for state-changing operations. Include scheme + host (+ port). Without this, requests coming through a proxy that rewrites the host (Synology DSM portal, Traefik, nginx, subdomains) may be rejected with **403**. | `https://gitecho.example.com,https://nas.local:5000` |
 | `MASTER_KEY` | Required to use the Settings UI for secrets | 32-byte key (hex or base64) used to encrypt PATs and SMTP password at rest. Generate with `openssl rand -hex 32`. **If you lose it, all stored secrets are unrecoverable.** | `7f...` (64 hex chars) |
 
 \* At least one provider PAT and its corresponding expiration date are required — either via env vars or via the Settings UI.
@@ -167,6 +168,7 @@ Configuration precedence is **builtin defaults < environment variables < `settin
 
 - HTTP Basic Auth is plaintext on the wire. **Always put GitEcho behind a TLS-terminating reverse proxy** (Caddy, nginx, Traefik, …) when exposing it beyond `localhost`.
 - If `UI_USER`/`UI_PASS` are unset, the Settings UI is reachable without authentication and a warning is logged at startup.
+- When running behind a reverse proxy that rewrites the host (Synology DSM portal, subdomains, etc.), set `PUBLIC_URL` to the external URL(s). Otherwise add/remove/save actions from the UI may fail with `403 Forbidden` because the browser's `Origin` header does not match the container's internal host.
 - Losing `MASTER_KEY` means losing every PAT and SMTP password stored via the UI — back it up alongside your other secrets.
 - The container is no longer strictly immutable when you use the Settings UI: state lives in `/config` and `/data`, both of which must be persistent volumes.
 

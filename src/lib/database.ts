@@ -1,6 +1,7 @@
 import * as BetterSqlite3 from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { logger } from './logger.js';
 
 type DatabaseInstance = BetterSqlite3.Database;
 type DatabaseCtor = new (filename?: string | Buffer, options?: BetterSqlite3.Options) => DatabaseInstance;
@@ -175,7 +176,7 @@ function runMigrations(instance: DatabaseInstance): void {
   // legacy helpers already do.
   for (let v = current; v < MIGRATIONS.length; v++) {
     const next = v + 1;
-    console.log(`[db] migrating v${v} → v${next}`);
+    logger.info(`[db] migrating v${v} → v${next}`);
     instance.transaction(() => {
       MIGRATIONS[v](instance);
       instance.pragma(`user_version = ${next}`);

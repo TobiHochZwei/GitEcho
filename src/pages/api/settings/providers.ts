@@ -4,6 +4,7 @@ import { patchSettings, writeSecret } from '../../../lib/settings.js';
 import type { DiscoveryFilterSettings } from '../../../lib/settings.js';
 import { runDiscovery } from '../../../lib/discovery.js';
 import type { DiscoveryProvider } from '../../../lib/discovery.js';
+import { logger } from '../../../lib/logger.js';
 
 interface ProviderInputCommon {
   pat?: string;
@@ -140,7 +141,7 @@ export const PUT: APIRoute = async ({ request }) => {
     discoveryStarted = true;
     setImmediate(() => {
       runDiscovery({ providers: providersToDiscover }).catch((err) => {
-        console.error('[providers] Background discovery failed:', err);
+        logger.error('[providers] Background discovery failed:', err);
       });
     });
   }

@@ -12,6 +12,7 @@
 
 import { loadSettings, readSecret } from './settings.js';
 import type { DiscoveryFilterSettings } from './settings.js';
+import { logger } from './logger.js';
 
 export interface ProviderConfig {
   pat: string;
@@ -146,7 +147,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       settings.github?.filters,
     );
   } catch (err) {
-    console.error('[config] Failed to load GitHub provider:', (err as Error).message);
+    logger.error('[config] Failed to load GitHub provider:', (err as Error).message);
   }
 
   try {
@@ -163,7 +164,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       settings.azureDevOps?.filters,
     );
   } catch (err) {
-    console.error('[config] Failed to load Azure DevOps provider:', (err as Error).message);
+    logger.error('[config] Failed to load Azure DevOps provider:', (err as Error).message);
   }
 
   const rawBackupMode = settings.backupMode ?? env.BACKUP_MODE ?? 'option1';
@@ -182,7 +183,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       : parseBoolean(env.NOTIFY_ON_SUCCESS, false);
 
   if (notifyOnSuccess && !smtp) {
-    console.warn(
+    logger.warn(
       '[config] NOTIFY_ON_SUCCESS is enabled but SMTP is not fully configured — notifications will not be sent.',
     );
   }

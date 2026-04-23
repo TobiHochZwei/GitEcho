@@ -4,6 +4,7 @@ import { getConfig, isBackupCapable } from '../../../lib/config.js';
 import { inspectBackupLock, tryAcquireBackupLock } from '../../../lib/backup-lock.js';
 import { registerAllPlugins } from '../../../lib/plugins/register.js';
 import { runBackup } from '../../../lib/backup/engine.js';
+import { logger } from '../../../lib/logger.js';
 
 let pluginsRegistered = false;
 
@@ -45,7 +46,7 @@ export const POST: APIRoute = async () => {
   }
   // Kick off in background; respond immediately so the UI can poll status
   runBackup()
-    .catch((err) => console.error('[trigger] runBackup failed:', err))
+    .catch((err) => logger.error('[trigger] runBackup failed:', err))
     .finally(() => handle.release());
   return new Response(JSON.stringify({ ok: true, started: true }), {
     status: 202,

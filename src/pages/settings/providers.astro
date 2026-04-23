@@ -97,6 +97,38 @@ const providers = [
     {providers.map((p, i) => (
       <div class={`tab-pane fade ${i === 0 ? 'show active' : ''}`} id={`pane-${p.key}`} role="tabpanel">
         <Card>
+          {p.key === 'github' && (
+            <div class="alert alert-info d-flex align-items-start gap-2 mb-3" role="alert">
+              <i class="bi bi-info-circle-fill mt-1"></i>
+              <div class="small">
+                <strong>Required PAT scopes (GitHub)</strong>
+                <ul class="mb-1 ps-3">
+                  <li><strong>Classic PAT:</strong> <code>repo</code> (full — needed to clone private repos) and <code>read:org</code> (to list org-owned repos via <code>gh repo list</code>).</li>
+                  <li><strong>Fine-grained PAT:</strong> Repository permissions → <em>Contents: Read</em> and <em>Metadata: Read</em>. Grant access to <strong>all repositories</strong> (or all in the target org) you want backed up — a fine-grained PAT only sees repos it was explicitly granted access to.</li>
+                </ul>
+                Create one at <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.
+              </div>
+            </div>
+          )}
+          {p.key === 'azureDevOps' && (
+            <div class="alert alert-info d-flex align-items-start gap-2 mb-3" role="alert">
+              <i class="bi bi-info-circle-fill mt-1"></i>
+              <div class="small">
+                <strong>Required PAT scopes (Azure DevOps)</strong>
+                <ul class="mb-1 ps-3">
+                  <li><strong>Code</strong> → <em>Read</em> (clone + list repos per project)</li>
+                  <li><strong>Project and Team</strong> → <em>Read</em> (list all projects in the org)</li>
+                </ul>
+                Set <strong>Organization</strong> to <em>All accessible organizations</em> (or the specific one) when creating the PAT.
+                Create one at <code>https://dev.azure.com/&lt;your-org&gt;/_usersSettings/tokens</code>.
+                <div class="mt-2">
+                  <strong>Discovery works but shows fewer repos than expected?</strong>
+                  Test only calls <code>project list</code>; Discover additionally calls <code>repos list</code> per project.
+                  If the PAT is missing <em>Code: Read</em> on some projects, those projects return no repos.
+                </div>
+              </div>
+            </div>
+          )}
           <form class="provider-form row g-3" data-provider={p.key}>
             <div class="col-12 col-md-6">
               <label class="form-label fw-semibold">Personal Access Token</label>
@@ -111,8 +143,11 @@ const providers = [
             </div>
             {p.key === 'azureDevOps' && (
               <div class="col-12 col-md-3">
-                <label class="form-label fw-semibold">Organization</label>
+                <label class="form-label fw-semibold">Organization name</label>
                 <input type="text" name="org" value={p.org} placeholder="myorg" class="form-control" />
+                <div class="form-text small">
+                  Just the name from <code>dev.azure.com/<strong>myorg</strong></code> (no URL, no slashes).
+                </div>
               </div>
             )}
 

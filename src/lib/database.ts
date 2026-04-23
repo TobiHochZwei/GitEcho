@@ -441,6 +441,39 @@ export function getBackupItems(runId: number): BackupItem[] {
     .all(runId) as BackupItem[];
 }
 
+/**
+ * Delete a backup run and its per-repository items. Returns true if a row
+ * was removed. Intended for cleaning up stuck or obsolete runs from the UI.
+ */
+export function deleteBackupRun(id: number): boolean {
+  const database = getDatabase();
+  const tx = database.transaction((runId: number) => {
+    database.prepare('DELETE FROM backup_items WHERE run_id = ?').run(runId);
+    return database.prepare('DELETE FROM backup_runs WHERE id = ?').run(runId);
+  });
+  const result = tx(id);
+  return result.changes > 0;
+}
+
+/**
+ * Mark any run still in the `running` state as failed. Used to reconcile
+ * runs that were orphaned by a process crash or container restart.
+ * Returns the number of rows updated.
+ */
+export function markStuckRunsFailed(reason = 'Process terminated before run completed'): number {
+  const database = getDatabase();
+  const result = database
+    .prepare(
+      `UPDATE backup_runs
+          SET status = 'failed',
+              completed_at = COALESCE(completed_at, datetime('now')),
+              error_summary = COALESCE(error_summary, ?)
+        WHERE status = 'running'`,
+    )
+    .run(reason);
+  return result.changes;
+}
+
 // ─── Stats ───────────────────────────────────────────────────────────
 
 export function getBackupStats(): BackupStats {

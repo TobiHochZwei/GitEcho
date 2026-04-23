@@ -71,7 +71,7 @@ function duration(start: string, end: string | null): string {
           </thead>
           <tbody>
             {runs.map((r: any) => (
-              <tr>
+              <tr data-run-id={r.id}>
                 <td class="font-monospace">#{r.id}</td>
                 <td>{new Date(r.started_at).toLocaleString()}</td>
                 <td>{duration(r.started_at, r.completed_at)}</td>
@@ -81,7 +81,17 @@ function duration(start: string, end: string | null): string {
                 <td class="text-end text-danger">{r.repos_failed}</td>
                 <td class="text-end text-warning">{r.repos_unavailable ?? 0}</td>
                 <td><code>{r.backup_mode}</code></td>
-                <td class="text-end"><a class="btn btn-sm btn-outline-primary" href={`/runs/${r.id}`}>Details</a></td>
+                <td class="text-end">
+                  <div class="btn-group btn-group-sm" role="group">
+                    <a class="btn btn-outline-primary" href={`/runs/${r.id}`}>Details</a>
+                    <button
+                      type="button"
+                      class="btn btn-outline-danger js-delete-run"
+                      data-run-id={r.id}
+                      title="Delete run from history"
+                    ><i class="bi bi-trash"></i></button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -90,3 +100,28 @@ function duration(start: string, end: string | null): string {
     )}
   </Card>
 </Layout>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>('.js-delete-run').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.runId;
+      if (!id) return;
+      if (!confirm(`Delete backup run #${id}? This removes it from history (no files are touched).`)) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/api/runs/${id}`, { method: 'DELETE' });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || body.ok === false) {
+          alert(body.error ?? `Failed to delete run (HTTP ${res.status}).`);
+          btn.disabled = false;
+          return;
+        }
+        const row = document.querySelector<HTMLTableRowElement>(`tr[data-run-id="${id}"]`);
+        row?.remove();
+      } catch (err) {
+        alert(`Failed to delete run: ${(err as Error).message}`);
+        btn.disabled = false;
+      }
+    });
+  });
+</script>

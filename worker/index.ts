@@ -1,6 +1,6 @@
 process.env.GITECHO_PROCESS = 'worker';
 import { loadConfig } from '../src/lib/config.js';
-import { initDatabase } from '../src/lib/database.js';
+import { initDatabase, markStuckRunsFailed } from '../src/lib/database.js';
 import { logger } from '../src/lib/logger.js';
 import { registerAllPlugins } from '../src/lib/plugins/register.js';
 import { startScheduler, executeBackupCycle } from '../src/lib/scheduler.js';
@@ -16,6 +16,14 @@ async function main(): Promise<void> {
 
     initDatabase(config.dataDir);
     logger.info('[Worker] Database initialized');
+
+    // Reconcile runs orphaned by a previous crash/restart. The worker is the
+    // single source of backup execution and both processes restart together,
+    // so any row still marked `running` at boot cannot have a live writer.
+    const reconciled = markStuckRunsFailed('Run interrupted by process restart');
+    if (reconciled > 0) {
+      logger.warn(`[Worker] Marked ${reconciled} stuck run(s) as failed`);
+    }
 
     registerAllPlugins();
     logger.info('[Worker] Plugins registered');

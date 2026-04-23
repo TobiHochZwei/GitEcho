@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     gnupg \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI
@@ -47,11 +48,10 @@ COPY entrypoint.sh ./
 RUN mkdir -p /data /config /backups && \
     chmod +x /app/entrypoint.sh
 
-# Create non-root user
+# Create non-root user (entrypoint drops privileges via gosu after fixing
+# mount-point ownership, so we intentionally do NOT set USER here).
 RUN groupadd -r gitecho && useradd -r -g gitecho -d /app gitecho && \
     chown -R gitecho:gitecho /app /data /config /backups
-
-USER gitecho
 
 EXPOSE 3000
 

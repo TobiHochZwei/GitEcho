@@ -1,6 +1,49 @@
 #!/bin/bash
 set -e
 
+# ---------------------------------------------------------------------------
+# Root phase: fix mount-point ownership, optionally remap UID/GID, then
+# re-exec ourselves as the unprivileged `gitecho` user via gosu.
+#
+# This is required because Docker bind mounts inherit host ownership and
+# ignore the image-time chown, which previously caused:
+#   /app/entrypoint.sh: line 21: /config/repos.txt: Permission denied
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" = "0" ]; then
+  # Optional PUID/PGID remap (LinuxServer.io convention) so bind-mounted
+  # host directories stay accessible from the host as the invoking user.
+  if [ -n "${PGID:-}" ] && [ "${PGID}" != "$(id -g gitecho)" ]; then
+    groupmod -o -g "${PGID}" gitecho
+  fi
+  if [ -n "${PUID:-}" ] && [ "${PUID}" != "$(id -u gitecho)" ]; then
+    usermod -o -u "${PUID}" gitecho
+  fi
+
+  GITECHO_UID="$(id -u gitecho)"
+  GITECHO_GID="$(id -g gitecho)"
+
+  for d in /data /config /backups; do
+    mkdir -p "$d" 2>/dev/null || true
+    if [ -d "$d" ]; then
+      current_uid="$(stat -c '%u' "$d" 2>/dev/null || echo "")"
+      if [ "$current_uid" != "$GITECHO_UID" ]; then
+        if ! chown -R "${GITECHO_UID}:${GITECHO_GID}" "$d" 2>/dev/null; then
+          if [ "$d" = "/data" ]; then
+            echo "ERROR: cannot chown $d and the SQLite database lives there. Aborting." >&2
+            exit 1
+          else
+            echo "Warning: could not chown $d (read-only mount?). Continuing." >&2
+          fi
+        fi
+      fi
+    fi
+  done
+
+  # Re-exec as gitecho. `exec` replaces this shell so gosu's child becomes
+  # PID 1's direct successor, preserving signal delivery to the trap below.
+  exec gosu gitecho:gitecho "$0" "$@"
+fi
+
 echo "GitEcho starting..."
 
 # Ensure directories exist

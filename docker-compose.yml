@@ -6,6 +6,12 @@ services:
     ports:
       - "3000:3000"
     environment:
+      # Optional: match ownership of bind-mounted host directories.
+      # Leave unset when using the named volumes below; set to your host
+      # user's UID/GID (e.g. `id -u` / `id -g`) when using bind mounts.
+      PUID: ${PUID:-}
+      PGID: ${PGID:-}
+
       # Provider tokens (configure at least one)
       GITHUB_PAT: ${GITHUB_PAT}
       GITHUB_PAT_EXPIRES: ${GITHUB_PAT_EXPIRES}

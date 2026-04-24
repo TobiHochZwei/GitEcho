@@ -1,0 +1,90 @@
+site_name: GitEcho
+site_description: Self-hosted backups for GitHub, Azure DevOps and GitLab repositories
+site_url: https://tobihochzwei.github.io/GitEcho/
+repo_url: https://github.com/TobiHochZwei/GitEcho
+repo_name: TobiHochZwei/GitEcho
+edit_uri: edit/main/docs/docs/
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: cyan
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: cyan
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Configuration:
+      - Overview: configuration/index.md
+      - Environment Variables: configuration/environment-variables.md
+      - Settings UI: configuration/settings-ui.md
+      - Repository List (repos.txt): configuration/repos-txt.md
+  - Backup Modes: backup-modes.md
+  - Providers:
+      - Overview: providers/index.md
+      - GitHub: providers/github.md
+      - Azure DevOps: providers/azure-devops.md
+      - GitLab: providers/gitlab.md
+  - Deployment:
+      - Docker Run: deployment/docker-run.md
+      - Docker Compose: deployment/docker-compose.md
+      - Reverse Proxy: deployment/reverse-proxy.md
+      - Upgrading: deployment/upgrading.md
+  - Web UI: web-ui.md
+  - Security: security.md
+  - Development: development.md
+  - Troubleshooting: troubleshooting.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/TobiHochZwei/GitEcho
+
+copyright: Copyright &copy; 2026 Tobias Allweier — MIT License

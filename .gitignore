@@ -143,3 +143,6 @@ vite.config.ts.timestamp-*
 
 # Local development state
 .dev/
+
+# MkDocs build output
+site/

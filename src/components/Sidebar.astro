@@ -95,12 +95,15 @@ const isSettings = active === 'settings';
   </div>
 
   <div class="sidebar-footer p-3 small text-secondary border-top">
+    <div class="sidebar-logo mb-3">
+      <img src="/logo.svg" alt="GitEcho" />
+    </div>
     <div class="d-flex justify-content-between">
       <span><i class="bi bi-tag me-1"></i>v{appVersion}</span>
       {backupMode && <span class="badge text-bg-secondary">{backupMode}</span>}
     </div>
     <div class="mt-2">
-      <a href="https://github.com/tobiaswittenburg/GitEcho" target="_blank" rel="noopener" class="text-decoration-none link-secondary">
+      <a href="https://github.com/TobiHochZwei/GitEcho" target="_blank" rel="noopener" class="text-decoration-none link-secondary">
         <i class="bi bi-github me-1"></i>Project on GitHub
       </a>
     </div>
@@ -175,6 +178,17 @@ const isSettings = active === 'settings';
   }
   .sidebar-footer {
     border-color: rgba(255, 255, 255, 0.08) !important;
+  }
+  .sidebar-logo {
+    display: flex;
+    justify-content: center;
+    padding: 0.25rem 0;
+    opacity: 0.9;
+  }
+  .sidebar-logo img {
+    max-width: 180px;
+    width: 100%;
+    height: auto;
   }
 
   /* Mobile: hide sidebar by default, show when body has .sidebar-open */

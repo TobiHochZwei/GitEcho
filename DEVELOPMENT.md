@@ -23,7 +23,7 @@ Optional but recommended:
 ## 2. First-time setup
 
 ```bash
-git clone https://github.com/tobiaswittenburg/GitEcho.git
+git clone https://github.com/TobiHochZwei/GitEcho.git
 cd GitEcho
 npm install
 ```

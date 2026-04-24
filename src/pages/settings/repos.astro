@@ -31,6 +31,7 @@ let discoveredRepos: Array<{
   last_sync_status: string | null;
   skip_backup: number;
   notes: string | null;
+  debug_trace: number;
 }> = [];
 let discoveredError: string | null = null;
 let archivedCount = 0;
@@ -45,6 +46,7 @@ try {
     last_sync_status: r.last_sync_status,
     skip_backup: r.skip_backup,
     notes: r.notes,
+    debug_trace: r.debug_trace,
   }));
   archivedCount = getRepositories(undefined, { onlyArchived: true }).length;
 } catch (err) {
@@ -185,6 +187,11 @@ function statusBadge(status: string | null): { cls: string; label: string } {
                     <td class="small">
                       <a href={detailHref} class="text-decoration-none">{r.name}</a>
                       {r.notes && <i class="bi bi-sticky ms-1 text-secondary" title="Has notes"></i>}
+                      {r.debug_trace === 1 && (
+                        <span class="badge text-bg-warning ms-1" title="Verbose git trace is enabled for this repository">
+                          <i class="bi bi-bug-fill me-1"></i>trace
+                        </span>
+                      )}
                     </td>
                     <td>
                       {r.skip_backup === 1

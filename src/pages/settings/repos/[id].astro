@@ -454,6 +454,34 @@ const backupRunning = activeLock !== undefined;
         </div>
       </div>
     </div>
+
+    <div class="modal fade" id="debugLogViewModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-bug me-1"></i>
+              <code id="debug-log-view-name">log</code>
+              <span id="debug-log-view-truncated" class="badge text-bg-warning ms-2 d-none">tail only</span>
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body p-0">
+            <pre id="debug-log-view-body" class="mb-0 p-3 small"
+                 style="max-height: 70vh; overflow: auto; white-space: pre-wrap; word-break: break-all;">Loading…</pre>
+          </div>
+          <div class="modal-footer justify-content-between">
+            <small class="text-secondary" id="debug-log-view-info"></small>
+            <div>
+              <a id="debug-log-view-download" class="btn btn-outline-primary" href="#" download>
+                <i class="bi bi-download me-1"></i>Download full
+              </a>
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </>
 )}
 
@@ -610,6 +638,61 @@ const backupRunning = activeLock !== undefined;
     const escapeHtml = (s: string): string =>
       s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
+    // Wire up the per-row "View" buttons after the table is rendered.
+    const viewModalEl = document.getElementById('debugLogViewModal');
+    const viewModal = viewModalEl ? new Modal(viewModalEl) : null;
+    const viewName = document.getElementById('debug-log-view-name');
+    const viewBody = document.getElementById('debug-log-view-body');
+    const viewInfo = document.getElementById('debug-log-view-info');
+    const viewTruncated = document.getElementById('debug-log-view-truncated');
+    const viewDownload = document.getElementById('debug-log-view-download') as HTMLAnchorElement | null;
+
+    const wireDebugLogViewButtons = (): void => {
+      const buttons = debugLogsList.querySelectorAll<HTMLButtonElement>('button[data-log-view]');
+      buttons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const encodedName = btn.dataset.logView ?? '';
+          const totalSize = Number(btn.dataset.logSize ?? '0');
+          const decoded = decodeURIComponent(encodedName);
+          if (viewName) viewName.textContent = decoded;
+          if (viewBody) viewBody.textContent = 'Loading…';
+          if (viewInfo) viewInfo.textContent = '';
+          if (viewTruncated) viewTruncated.classList.add('d-none');
+          if (viewDownload) {
+            viewDownload.href = `/api/repos/${repoId}/debug-logs?file=${encodedName}`;
+          }
+          viewModal?.show();
+
+          void fetch(`/api/repos/${repoId}/debug-logs?file=${encodedName}&view=1`)
+            .then(async (r) => {
+              if (!r.ok) throw new Error(`HTTP ${r.status}`);
+              const truncated = r.headers.get('X-Log-Truncated') === '1';
+              const totalReported = r.headers.get('X-Log-Total-Size');
+              const text = await r.text();
+              if (viewBody) {
+                viewBody.textContent = text.length === 0 ? '(empty)' : text;
+                // Scroll to bottom — trace errors live at the end.
+                viewBody.scrollTop = viewBody.scrollHeight;
+              }
+              if (viewTruncated && truncated) viewTruncated.classList.remove('d-none');
+              if (viewInfo) {
+                const shownKib = (text.length / 1024).toFixed(1);
+                if (truncated) {
+                  const total = Number(totalReported ?? totalSize);
+                  viewInfo.textContent =
+                    `Showing last ${shownKib} KiB of ${formatSize(total)}. Download to see the full trace.`;
+                } else {
+                  viewInfo.textContent = `${shownKib} KiB`;
+                }
+              }
+            })
+            .catch((e: Error) => {
+              if (viewBody) viewBody.textContent = `Failed to load: ${e.message}`;
+            });
+        });
+      });
+    };
+
     void fetch(`/api/repos/${repoId}/debug-logs`)
       .then((r) => r.json())
       .then((data: { files?: Array<{ name: string; size: number; mtime: string }> }) => {
@@ -627,11 +710,20 @@ const backupRunning = activeLock !== undefined;
                 <td class="small text-secondary">${escapeHtml(f.mtime)}</td>
                 <td class="small text-secondary">${formatSize(f.size)}</td>
                 <td class="text-end">
-                  <a class="btn btn-sm btn-outline-primary"
-                     href="/api/repos/${repoId}/debug-logs?file=${encodeURIComponent(f.name)}"
-                     download>
-                    <i class="bi bi-download me-1"></i>Download
-                  </a>
+                  <div class="btn-group btn-group-sm" role="group">
+                    <button type="button"
+                      class="btn btn-outline-secondary"
+                      data-log-view="${encodeURIComponent(f.name)}"
+                      data-log-size="${f.size}"
+                      title="View last 512 KiB in browser">
+                      <i class="bi bi-eye me-1"></i>View
+                    </button>
+                    <a class="btn btn-outline-primary"
+                       href="/api/repos/${repoId}/debug-logs?file=${encodeURIComponent(f.name)}"
+                       download>
+                      <i class="bi bi-download me-1"></i>Download
+                    </a>
+                  </div>
                 </td>
               </tr>`,
           )
@@ -641,6 +733,7 @@ const backupRunning = activeLock !== undefined;
             <thead><tr><th>File</th><th>Captured</th><th>Size</th><th></th></tr></thead>
             <tbody>${rows}</tbody>
           </table></div>`;
+        wireDebugLogViewButtons();
       })
       .catch((e: Error) => {
         debugLogsList.innerHTML =

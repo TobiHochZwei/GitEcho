@@ -83,6 +83,15 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
             </div>
           </div>
           <div class="mb-3">
+            <label class="form-label fw-semibold" for="cronTimezone">Cron timezone</label>
+            <input id="cronTimezone" name="cronTimezone" class="form-control font-monospace" value={cfg.cronTimezone} placeholder="UTC" />
+            <div class="form-text">
+              IANA timezone the cron schedule is interpreted in (e.g. <code>Europe/Berlin</code>, <code>America/New_York</code>, <code>UTC</code>).
+              Falls back to the container <code>TZ</code> env var, else UTC.
+              Restart the worker container for this to take effect.
+            </div>
+          </div>
+          <div class="mb-3">
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" role="switch" id="runBackupOnStart" name="runBackupOnStart" checked={cfg.runBackupOnStart} />
               <label class="form-check-label fw-semibold" for="runBackupOnStart">Run a backup immediately on container start</label>
@@ -211,6 +220,7 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
       body: JSON.stringify({
         backupMode: fd.get('backupMode'),
         cronSchedule: fd.get('cronSchedule'),
+        cronTimezone: (fd.get('cronTimezone') as string | null)?.trim() || undefined,
         cronEnabled,
         runBackupOnStart,
       }),

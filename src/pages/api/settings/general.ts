@@ -4,6 +4,7 @@ import { patchSettings } from '../../../lib/settings.js';
 interface GeneralInput {
   backupMode?: 'option1' | 'option2' | 'option3';
   cronSchedule?: string;
+  cronTimezone?: string;
   cronEnabled?: boolean;
   runBackupOnStart?: boolean;
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
@@ -12,6 +13,16 @@ interface GeneralInput {
 function isValidCron(expression: string): boolean {
   const parts = expression.trim().split(/\s+/);
   return parts.length >= 5 && parts.length <= 6;
+}
+
+function isValidTimezone(tz: string): boolean {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export const PUT: APIRoute = async ({ request }) => {
@@ -24,6 +35,12 @@ export const PUT: APIRoute = async ({ request }) => {
 
   if (body.cronSchedule !== undefined && !isValidCron(body.cronSchedule)) {
     return new Response(JSON.stringify({ error: 'Invalid cron expression' }), { status: 400 });
+  }
+  if (body.cronTimezone !== undefined && !isValidTimezone(body.cronTimezone)) {
+    return new Response(
+      JSON.stringify({ error: 'Invalid timezone. Use an IANA name like "Europe/Berlin" or "UTC".' }),
+      { status: 400 },
+    );
   }
   if (
     body.backupMode !== undefined &&
@@ -52,17 +69,18 @@ export const PUT: APIRoute = async ({ request }) => {
   patchSettings({
     backupMode: body.backupMode,
     cronSchedule: body.cronSchedule,
+    cronTimezone: body.cronTimezone,
     cronEnabled: typeof body.cronEnabled === 'boolean' ? body.cronEnabled : undefined,
     runBackupOnStart: typeof body.runBackupOnStart === 'boolean' ? body.runBackupOnStart : undefined,
     logLevel: body.logLevel,
   });
 
-  // Cron-schedule string changes still need a worker restart to pick up the
-  // new cron expression. Toggling cronEnabled / runBackupOnStart takes effect
-  // on the next tick (or next boot) without a restart.
+  // Cron-schedule / timezone changes still need a worker restart to pick up
+  // the new cron expression. Toggling cronEnabled / runBackupOnStart takes
+  // effect on the next tick (or next boot) without a restart.
   const note =
-    body.cronSchedule !== undefined
-      ? 'Cron schedule changes require a worker restart to take effect.'
+    body.cronSchedule !== undefined || body.cronTimezone !== undefined
+      ? 'Cron schedule or timezone changes require a worker restart to take effect.'
       : undefined;
 
   return new Response(JSON.stringify({ ok: true, ...(note ? { note } : {}) }), {

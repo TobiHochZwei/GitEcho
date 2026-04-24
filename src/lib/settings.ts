@@ -77,6 +77,12 @@ export interface PersistedSettings {
   backupMode?: 'option1' | 'option2' | 'option3';
   cronSchedule?: string;
   /**
+   * IANA timezone the cron schedule is interpreted in (e.g. `Europe/Berlin`).
+   * Defaults to the worker's `TZ` env, else UTC. Requires a worker restart
+   * to take effect, same as `cronSchedule`.
+   */
+  cronTimezone?: string;
+  /**
    * When false, the scheduled cron tick is skipped and only manually
    * triggered backups run. Defaults to true. Changes take effect on the
    * next tick without requiring a worker restart.

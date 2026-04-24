@@ -51,6 +51,7 @@ These environment variables are accepted as a **fallback** when the Settings UI 
 |---|---|---|
 | `BACKUP_MODE` | Backup strategy: `option1`, `option2`, or `option3` | `option1` |
 | `CRON_SCHEDULE` | Cron expression for backup timing | `0 2 * * *` (daily at 2 AM) |
+| `CRON_TZ` | IANA timezone the cron expression is interpreted in (e.g. `Europe/Berlin`). Falls back to `TZ` env, else `UTC`. | `UTC` |
 
 ## SMTP Fallbacks
 

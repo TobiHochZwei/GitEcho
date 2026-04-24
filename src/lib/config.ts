@@ -49,6 +49,11 @@ export interface AppConfig {
   backupMode: 'option1' | 'option2' | 'option3';
   cronSchedule: string;
   /**
+   * IANA timezone the cron schedule is interpreted in (e.g. `Europe/Berlin`).
+   * Falls back to the `TZ` env, else `UTC`. Requires a worker restart.
+   */
+  cronTimezone: string;
+  /**
    * When false, scheduled cron ticks are skipped and only manual triggers
    * run backups. Defaults to true. Evaluated live on every cron tick, so
    * toggling in the UI takes effect without a worker restart.
@@ -85,6 +90,17 @@ function parseDateOrUndefined(value: string | undefined): Date | undefined {
 function isValidCron(expression: string): boolean {
   const parts = expression.trim().split(/\s+/);
   return parts.length >= 5 && parts.length <= 6;
+}
+
+function isValidTimezone(tz: string): boolean {
+  if (!tz) return false;
+  try {
+    // Intl throws RangeError for unknown IANA identifiers.
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function loadProvider(
@@ -221,6 +237,14 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const cronCandidate = settings.cronSchedule ?? env.CRON_SCHEDULE ?? '0 2 * * *';
   const cronSchedule = isValidCron(cronCandidate) ? cronCandidate : '0 2 * * *';
 
+  const tzCandidate = settings.cronTimezone ?? env.CRON_TZ ?? env.TZ ?? 'UTC';
+  const cronTimezone = isValidTimezone(tzCandidate) ? tzCandidate : 'UTC';
+  if (tzCandidate !== cronTimezone) {
+    logger.warn(
+      `[config] Invalid cron timezone "${tzCandidate}" — falling back to UTC. Use an IANA name like "Europe/Berlin".`,
+    );
+  }
+
   const runBackupOnStart =
     settings.runBackupOnStart !== undefined
       ? Boolean(settings.runBackupOnStart)
@@ -254,6 +278,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     gitlab,
     backupMode,
     cronSchedule,
+    cronTimezone,
     cronEnabled,
     smtp,
     notifyOnSuccess,

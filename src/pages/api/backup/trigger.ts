@@ -3,7 +3,7 @@ import { initDatabase, getBackupRuns } from '../../../lib/database.js';
 import { getConfig, isBackupCapable } from '../../../lib/config.js';
 import { inspectBackupLock, tryAcquireBackupLock } from '../../../lib/backup-lock.js';
 import { registerAllPlugins } from '../../../lib/plugins/register.js';
-import { runBackup } from '../../../lib/backup/engine.js';
+import { runBackupCycle } from '../../../lib/scheduler.js';
 import { logger } from '../../../lib/logger.js';
 
 let pluginsRegistered = false;
@@ -54,9 +54,12 @@ export const POST: APIRoute = async () => {
       headers: { 'Content-Type': 'application/json' },
     });
   }
-  // Kick off in background; respond immediately so the UI can poll status
-  runBackup()
-    .catch((err) => logger.error('[trigger] runBackup failed:', err))
+  // Kick off in background; respond immediately so the UI can poll status.
+  // Use the full cycle helper so UI-triggered runs produce the same
+  // consolidated email report (successes, failures, PAT warnings, crash
+  // reports) as scheduled runs.
+  runBackupCycle()
+    .catch((err) => logger.error('[trigger] runBackupCycle failed:', err))
     .finally(() => handle.release());
   return new Response(JSON.stringify({ ok: true, started: true }), {
     status: 202,

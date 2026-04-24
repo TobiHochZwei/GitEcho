@@ -189,6 +189,7 @@ without recreating the container.
 | SMTP host / port / user / password / from / to | `/settings/smtp` | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_TO` |
 | Backup mode (`option1` / `option2` / `option3`) | `/settings/general` | `BACKUP_MODE` |
 | Cron schedule | `/settings/general` | `CRON_SCHEDULE` |
+| Cron timezone (IANA name, e.g. `Europe/Berlin`) | `/settings/general` | `CRON_TZ` (falls back to `TZ`, else `UTC`) |
 | Notify on successful backups | `/settings/smtp` | `NOTIFY_ON_SUCCESS` |
 | PAT-expiry warning window (days) | `/settings/smtp` | `PAT_EXPIRY_WARN_DAYS` |
 

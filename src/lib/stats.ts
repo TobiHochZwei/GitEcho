@@ -253,20 +253,28 @@ export function getExtendedStats(): ExtendedStats {
 
   const last30 = db
     .prepare(
-      `SELECT status, repos_total FROM (
+      `SELECT status, repos_total, repos_success, repos_failed FROM (
          SELECT * FROM backup_runs ORDER BY id DESC LIMIT 30
        )`,
     )
-    .all() as Array<{ status: string; repos_total: number }>;
+    .all() as Array<{ status: string; repos_total: number; repos_success: number; repos_failed: number }>;
   let successRate30: number | null = null;
   if (last30.length > 0) {
+    // Repo-level success rate: sum successful repos / (successful + failed
+    // repos) across the last 30 runs. A single-repo failure in an
+    // otherwise-green run of 100 should only count as 1%, not 100%.
     // Cancelled runs represent a deliberate user action, not a failure —
-    // exclude them from the success-rate denominator so a few manual
-    // cancellations don't drag the health indicator down.
+    // exclude them so manual cancellations don't drag the indicator down.
     const considered = last30.filter((r) => r.status !== 'cancelled');
-    if (considered.length > 0) {
-      const ok = considered.filter((r) => r.status === 'success').length;
-      successRate30 = Math.round((ok / considered.length) * 100);
+    let successSum = 0;
+    let failedSum = 0;
+    for (const r of considered) {
+      successSum += r.repos_success ?? 0;
+      failedSum += r.repos_failed ?? 0;
+    }
+    const denom = successSum + failedSum;
+    if (denom > 0) {
+      successRate30 = Math.round((successSum / denom) * 100);
     }
   }
 

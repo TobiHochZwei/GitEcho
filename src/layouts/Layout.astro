@@ -12,7 +12,7 @@ interface Crumb { label: string; href?: string; }
 interface Props {
   title: string;
   active?: 'dashboard' | 'repos' | 'runs' | 'logs' | 'settings';
-  settingsActive?: 'index' | 'general' | 'providers' | 'repos' | 'smtp' | null;
+  settingsActive?: 'general' | 'providers' | 'repos' | 'smtp' | null;
   breadcrumbs?: Crumb[];
   pageTitle?: string;
   /** Visual health hint: 'success' (green border) or 'danger' (red border). */
@@ -50,7 +50,7 @@ const user = getUsername();
       {health && (
         <div class={`health-accent health-${health}`}>
           {health === 'success'
-            ? <span><i class="bi bi-check-circle-fill me-1"></i>Backups up to date</span>
+            ? <span><i class="bi bi-check-circle-fill me-1"></i>Last backup completed successfully</span>
             : <span><i class="bi bi-exclamation-triangle-fill me-1"></i>No successful backup in the last 24 hours</span>}
         </div>
       )}

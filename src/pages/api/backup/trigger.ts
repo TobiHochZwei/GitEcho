@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { initDatabase } from '../../../lib/database.js';
+import { initDatabase, getBackupRuns } from '../../../lib/database.js';
 import { getConfig, isBackupCapable } from '../../../lib/config.js';
 import { inspectBackupLock, tryAcquireBackupLock } from '../../../lib/backup-lock.js';
 import { registerAllPlugins } from '../../../lib/plugins/register.js';
@@ -20,10 +20,20 @@ function ensureInit() {
 export const GET: APIRoute = async () => {
   ensureInit();
   const lock = inspectBackupLock();
+  // Find the currently running run, if any, so the UI can offer a
+  // cancel action without needing a separate endpoint.
+  let runningRunId: number | null = null;
+  try {
+    const latest = getBackupRuns(5).find((r) => r.status === 'running');
+    if (latest) runningRunId = latest.id;
+  } catch {
+    runningRunId = null;
+  }
   return new Response(
     JSON.stringify({
       running: Boolean(lock),
       lock,
+      runningRunId,
     }),
     { headers: { 'Content-Type': 'application/json' } },
   );

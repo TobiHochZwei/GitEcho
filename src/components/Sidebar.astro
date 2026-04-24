@@ -2,7 +2,7 @@
 import pkg from '../../package.json';
 interface Props {
   active?: 'dashboard' | 'repos' | 'runs' | 'logs' | 'settings';
-  settingsActive?: 'index' | 'general' | 'providers' | 'repos' | 'smtp' | null;
+  settingsActive?: 'general' | 'providers' | 'repos' | 'smtp' | null;
   appVersion?: string;
   backupMode?: string;
 }
@@ -12,8 +12,7 @@ const isSettings = active === 'settings';
 <aside class="app-sidebar bg-body-secondary shadow" data-bs-theme="dark">
   <div class="sidebar-brand">
     <a href="/" class="brand-link">
-      <span class="brand-image opacity-75 me-2"><i class="bi bi-cloud-arrow-down-fill text-info fs-4"></i></span>
-      <span class="brand-text fw-light">GitEcho</span>
+      <img src="/logo.svg" alt="GitEcho" class="brand-image" />
     </a>
   </div>
 
@@ -59,12 +58,6 @@ const isSettings = active === 'settings';
           </a>
           <ul class="nav nav-treeview">
             <li class="nav-item">
-              <a href="/settings" class={`nav-link ${settingsActive === 'index' ? 'active' : ''}`}>
-                <i class="nav-icon bi bi-circle"></i>
-                <p>Overview</p>
-              </a>
-            </li>
-            <li class="nav-item">
               <a href="/settings/general" class={`nav-link ${settingsActive === 'general' ? 'active' : ''}`}>
                 <i class="nav-icon bi bi-sliders"></i>
                 <p>General</p>
@@ -95,16 +88,24 @@ const isSettings = active === 'settings';
   </div>
 
   <div class="sidebar-footer p-3 small text-secondary border-top">
-    <div class="sidebar-logo mb-3">
-      <img src="/logo.svg" alt="GitEcho" />
-    </div>
     <div class="d-flex justify-content-between">
       <span><i class="bi bi-tag me-1"></i>v{appVersion}</span>
       {backupMode && <span class="badge text-bg-secondary">{backupMode}</span>}
     </div>
     <div class="mt-2">
+      <a href="https://tobihochzwei.github.io/GitEcho/" target="_blank" rel="noopener" class="text-decoration-none link-secondary">
+        <i class="bi bi-book me-1"></i>Documentation
+      </a>
+    </div>
+    <div class="mt-2">
       <a href="https://github.com/TobiHochZwei/GitEcho" target="_blank" rel="noopener" class="text-decoration-none link-secondary">
         <i class="bi bi-github me-1"></i>Project on GitHub
+      </a>
+    </div>
+    <div class="supported-by mt-3 pt-3 border-top">
+      <div class="text-secondary small mb-1">Supported by</div>
+      <a href="https://www.tobihochzwei.de/" target="_blank" rel="noopener" class="d-block">
+        <img src="/tobihochzwei-logo.png" alt="TobiHochZwei" class="supported-logo" />
       </a>
     </div>
   </div>
@@ -130,6 +131,12 @@ const isSettings = active === 'settings';
     font-weight: 600;
     display: flex;
     align-items: center;
+    justify-content: center;
+  }
+  .brand-link .brand-image {
+    max-width: 180px;
+    width: 100%;
+    height: auto;
   }
   .sidebar-wrapper {
     flex: 1;
@@ -179,16 +186,19 @@ const isSettings = active === 'settings';
   .sidebar-footer {
     border-color: rgba(255, 255, 255, 0.08) !important;
   }
-  .sidebar-logo {
-    display: flex;
-    justify-content: center;
-    padding: 0.25rem 0;
-    opacity: 0.9;
+  .supported-by {
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    text-align: center;
   }
-  .sidebar-logo img {
-    max-width: 180px;
+  .supported-logo {
+    max-width: 140px;
     width: 100%;
     height: auto;
+    opacity: 0.55;
+    transition: opacity 0.15s ease;
+  }
+  .supported-logo:hover {
+    opacity: 0.9;
   }
 
   /* Mobile: hide sidebar by default, show when body has .sidebar-open */

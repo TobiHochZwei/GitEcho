@@ -118,7 +118,7 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
       <SmallBox value={formatAge(stats.lastBackupAgeSeconds)} label="Last backup" icon="bi-clock-history" variant={stats.hadRecentBackup ? 'success' : 'danger'} href="/runs" footer="See runs" />
     </div>
     <div class="col-12 col-sm-6 col-md-3">
-      <SmallBox value={stats.successRate30 === null ? '—' : `${stats.successRate30}%`} label="Success rate (30 runs)" icon="bi-check2-circle" variant="info" href="/runs" footer="Run history" />
+      <SmallBox value={stats.successRate30 === null ? '—' : `${stats.successRate30}%`} label="Repo success rate (30 runs)" icon="bi-check2-circle" variant="info" href="/runs" footer="Run history" />
     </div>
     <div class="col-12 col-sm-6 col-md-3">
       <SmallBox value={stats.unavailableCount} label="Unavailable upstream" icon="bi-cloud-slash" variant={stats.unavailableCount > 0 ? 'danger' : 'secondary'} href="/repos" footer="Review repos" />
@@ -163,7 +163,6 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
             </div>
             <p class="mb-1 text-secondary small">PAT expires: <strong>{config.github.patExpires?.toISOString().slice(0, 10) ?? '—'}</strong></p>
             <p class="mb-1 text-secondary small">Auto-discover: <strong>{config.github.autoDiscover === false ? 'off' : 'on'}</strong></p>
-            <button class="btn btn-sm btn-outline-primary mt-2" data-action="test-github"><i class="bi bi-plug me-1"></i>Test connection</button>
           </>
         ) : (
           <>
@@ -183,7 +182,6 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
             </div>
             <p class="mb-1 text-secondary small">PAT expires: <strong>{config.azureDevOps.patExpires?.toISOString().slice(0, 10) ?? '—'}</strong></p>
             <p class="mb-1 text-secondary small">Org: <strong>{config.azureDevOps.org ?? '—'}</strong></p>
-            <button class="btn btn-sm btn-outline-primary mt-2" data-action="test-azuredevops"><i class="bi bi-plug me-1"></i>Test connection</button>
           </>
         ) : (
           <>
@@ -203,7 +201,6 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
             </div>
             <p class="mb-1 text-secondary small">PAT expires: <strong>{config.gitlab.patExpires?.toISOString().slice(0, 10) ?? '—'}</strong></p>
             <p class="mb-1 text-secondary small">Host: <strong>{config.gitlab.host ?? 'gitlab.com'}</strong></p>
-            <button class="btn btn-sm btn-outline-primary mt-2" data-action="test-gitlab"><i class="bi bi-plug me-1"></i>Test connection</button>
           </>
         ) : (
           <>
@@ -268,17 +265,8 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
           <button id="run-backup-btn" class="btn btn-primary">
             <i class="bi bi-play-circle me-1"></i>Run backup now
           </button>
-          <button class="btn btn-outline-secondary" data-action="test-github" disabled={!config.github}>
-            <i class="bi bi-github me-1"></i>Test GitHub
-          </button>
-          <button class="btn btn-outline-secondary" data-action="test-azuredevops" disabled={!config.azureDevOps}>
-            <i class="bi bi-microsoft me-1"></i>Test Azure DevOps
-          </button>
-          <button class="btn btn-outline-secondary" data-action="test-gitlab" disabled={!config.gitlab}>
-            <i class="bi bi-gitlab me-1"></i>Test GitLab
-          </button>
-          <button class="btn btn-outline-secondary" data-action="test-smtp">
-            <i class="bi bi-envelope me-1"></i>Send test email
+          <button id="stop-backup-btn" class="btn btn-outline-danger" disabled>
+            <i class="bi bi-stop-circle me-1"></i>Stop running backup
           </button>
           <span id="backup-status" class="ms-auto text-secondary small align-self-center"></span>
         </div>
@@ -364,18 +352,29 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
 
   // Run backup button + polling
   const runBtn = document.getElementById('run-backup-btn') as HTMLButtonElement | null;
+  const stopBtn = document.getElementById('stop-backup-btn') as HTMLButtonElement | null;
   const statusEl = document.getElementById('backup-status');
+  // Tracks the id of the currently running backup so the Stop button
+  // knows which run to cancel. Refreshed on every status poll.
+  let currentRunId: number | null = null;
 
   async function refreshStatus() {
     try {
       const res = await fetch('/api/backup/trigger');
       const j = await res.json();
+      currentRunId = typeof j.runningRunId === 'number' ? j.runningRunId : null;
       if (j.running) {
-        if (statusEl) statusEl.textContent = `Running (pid ${j.lock?.pid ?? '?'})`;
+        if (statusEl) {
+          statusEl.textContent = currentRunId
+            ? `Running — run #${currentRunId}`
+            : `Running (pid ${j.lock?.pid ?? '?'})`;
+        }
         if (runBtn) runBtn.disabled = true;
+        if (stopBtn) stopBtn.disabled = !currentRunId;
       } else {
         if (statusEl) statusEl.textContent = 'No backup running';
         if (runBtn) runBtn.disabled = false;
+        if (stopBtn) stopBtn.disabled = true;
       }
     } catch {
       // ignore
@@ -383,6 +382,9 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
   }
 
   runBtn?.addEventListener('click', async () => {
+    if (!window.confirm('Start a new backup run now?\n\nAll configured repositories will be backed up.')) {
+      return;
+    }
     runBtn.disabled = true;
     try {
       const res = await fetch('/api/backup/trigger', { method: 'POST' });
@@ -398,40 +400,29 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
     refreshStatus();
   });
 
-  document.querySelectorAll('[data-action="test-github"]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      toast('Testing GitHub connection…', 'info');
-      const res = await fetch('/api/test/github', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      const j = await res.json();
-      toast(j.message || j.error || (res.ok ? 'OK' : 'Failed'), res.ok ? 'success' : 'danger');
-    });
-  });
-
-  document.querySelectorAll('[data-action="test-azuredevops"]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      toast('Testing Azure DevOps connection…', 'info');
-      const res = await fetch('/api/test/azuredevops', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      const j = await res.json();
-      toast(j.message || j.error || (res.ok ? 'OK' : 'Failed'), res.ok ? 'success' : 'danger');
-    });
-  });
-
-  document.querySelectorAll('[data-action="test-gitlab"]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      toast('Testing GitLab connection…', 'info');
-      const res = await fetch('/api/test/gitlab', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      const j = await res.json();
-      toast(j.message || j.error || (res.ok ? 'OK' : 'Failed'), res.ok ? 'success' : 'danger');
-    });
-  });
-
-  document.querySelectorAll('[data-action="test-smtp"]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      toast('Sending test email…', 'info');
-      const res = await fetch('/api/test/smtp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      const j = await res.json();
-      toast(j.message || j.error || (res.ok ? 'OK' : 'Failed'), res.ok ? 'success' : 'danger');
-    });
+  stopBtn?.addEventListener('click', async () => {
+    if (!currentRunId) return;
+    if (!window.confirm(
+      `Stop backup run #${currentRunId}?\n\n` +
+      'The engine will finish the repository it is currently processing,\n' +
+      'then stop. Remaining repositories will be marked as skipped.',
+    )) {
+      return;
+    }
+    const id = currentRunId;
+    stopBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/runs/${id}/cancel`, { method: 'POST' });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok || res.status === 202) {
+        toast(`Cancellation requested for run #${id}. It will stop after the current repository.`, 'info');
+      } else {
+        toast(j.error || 'Failed to cancel run', 'danger');
+      }
+    } catch (e) {
+      toast('Network error: ' + (e as Error).message, 'danger');
+    }
+    refreshStatus();
   });
 
   document.getElementById('refresh-storage')?.addEventListener('click', async () => {

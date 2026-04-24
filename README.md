@@ -1,4 +1,18 @@
-# GitHub / Azure DevOps / GitLab Backup
+<p align="center">
+  <img src="public/logo.svg" alt="GitEcho logo" width="128" height="128" />
+</p>
+
+<h1 align="center">GitEcho</h1>
+
+<p align="center"><em>Self-hosted backups for GitHub, Azure DevOps and GitLab repositories.</em></p>
+
+<p align="center">
+  <a href="https://github.com/TobiHochZwei/GitEcho/actions/workflows/docker-publish.yml"><img src="https://github.com/TobiHochZwei/GitEcho/actions/workflows/docker-publish.yml/badge.svg" alt="Build and publish Docker image" /></a>
+  <a href="https://github.com/TobiHochZwei/GitEcho/actions/workflows/ghcr-cleanup.yml"><img src="https://github.com/TobiHochZwei/GitEcho/actions/workflows/ghcr-cleanup.yml/badge.svg" alt="GHCR cleanup" /></a>
+  <a href="https://github.com/TobiHochZwei/GitEcho/pkgs/container/gitecho"><img src="https://img.shields.io/badge/ghcr.io-tobihochzwei%2Fgitecho-2496ED?logo=docker&logoColor=white" alt="GHCR image" /></a>
+  <a href="https://github.com/TobiHochZwei/GitEcho/releases/latest"><img src="https://img.shields.io/github/v/release/TobiHochZwei/GitEcho?display_name=tag&sort=semver" alt="Latest release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/TobiHochZwei/GitEcho" alt="License" /></a>
+</p>
 
 ## Technical Stack
 This is a node.js application built with Astro.js and background tasks in node.js

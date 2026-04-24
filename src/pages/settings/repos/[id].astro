@@ -354,25 +354,46 @@ const backupRunning = activeLock !== undefined;
         <div class="modal-content">
           <div class="modal-header bg-warning">
             <h5 class="modal-title"><i class="bi bi-archive-fill me-1"></i>Archive repository</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" data-role="dismiss"></button>
           </div>
           <div class="modal-body">
-            <div class="alert alert-warning small mb-3">
-              <i class="bi bi-exclamation-triangle-fill me-1"></i>
-              <strong>This cannot be undone.</strong> Archiving will:
-              <ul class="mb-0 mt-2">
-                <li>Pack all existing backup files into a single ZIP under <code>_archived/</code>.</li>
-                <li>Delete the original backup directory.</li>
-                <li>Stop future sync and backup runs for this repository.</li>
-                <li>Hide the repository from the active list.</li>
-              </ul>
+            <div data-role="confirm-panel">
+              <div class="alert alert-warning small mb-3">
+                <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                <strong>This cannot be undone.</strong> Archiving will:
+                <ul class="mb-0 mt-2">
+                  <li>Pack all existing backup files into a single ZIP under <code>_archived/</code>.</li>
+                  <li>Delete the original backup directory.</li>
+                  <li>Stop future sync and backup runs for this repository.</li>
+                  <li>Hide the repository from the active list.</li>
+                </ul>
+              </div>
+              <p class="mb-2">To confirm, type the repository name:</p>
+              <p class="mb-2"><code class="fs-6">{repo.name}</code></p>
+              <input type="text" id="archive-confirm-input" class="form-control" placeholder={repo.name} autocomplete="off" />
             </div>
-            <p class="mb-2">To confirm, type the repository name:</p>
-            <p class="mb-2"><code class="fs-6">{repo.name}</code></p>
-            <input type="text" id="archive-confirm-input" class="form-control" placeholder={repo.name} autocomplete="off" />
+            <div data-role="progress-panel" class="d-none">
+              <div class="alert alert-info small d-flex gap-2 py-2 mb-3" role="alert">
+                <i class="bi bi-info-circle-fill"></i>
+                <div>
+                  <strong>Please stay on this page.</strong> Closing or reloading the tab
+                  may interrupt the operation and leave the repository in an
+                  inconsistent state.
+                </div>
+              </div>
+              <div class="d-flex align-items-center gap-3 mb-2">
+                <div class="spinner-border text-warning" role="status" data-role="progress-spinner">
+                  <span class="visually-hidden">Working…</span>
+                </div>
+                <div>
+                  <div class="fw-semibold" data-role="progress-label">Starting…</div>
+                  <div class="text-secondary small" data-role="progress-sub">This may take a moment for large repositories.</div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-role="cancel">Cancel</button>
             <button type="button" class="btn btn-warning" id="archive-confirm-btn" disabled>
               <i class="bi bi-archive-fill me-1"></i>Archive
             </button>
@@ -386,25 +407,46 @@ const backupRunning = activeLock !== undefined;
         <div class="modal-content border-danger">
           <div class="modal-header bg-danger text-white">
             <h5 class="modal-title"><i class="bi bi-trash-fill me-1"></i>Delete repository permanently</h5>
-            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close" data-role="dismiss"></button>
           </div>
           <div class="modal-body">
-            <div class="alert alert-danger small mb-3">
-              <i class="bi bi-exclamation-octagon-fill me-1"></i>
-              <strong>This cannot be undone.</strong> Deletion will:
-              <ul class="mb-0 mt-2">
-                <li>Remove all backup files for this repository from disk.</li>
-                <li>Delete any existing archive ZIP.</li>
-                <li>Remove the database entry (historical run items remain but lose their repo reference).</li>
-                <li>Add the URL to the provider blacklist so auto-discovery won't re-create the entry.</li>
-              </ul>
+            <div data-role="confirm-panel">
+              <div class="alert alert-danger small mb-3">
+                <i class="bi bi-exclamation-octagon-fill me-1"></i>
+                <strong>This cannot be undone.</strong> Deletion will:
+                <ul class="mb-0 mt-2">
+                  <li>Remove all backup files for this repository from disk.</li>
+                  <li>Delete any existing archive ZIP.</li>
+                  <li>Remove the database entry (historical run items remain but lose their repo reference).</li>
+                  <li>Add the URL to the provider blacklist so auto-discovery won't re-create the entry.</li>
+                </ul>
+              </div>
+              <p class="mb-2">To confirm, type the repository name:</p>
+              <p class="mb-2"><code class="fs-6">{repo.name}</code></p>
+              <input type="text" id="delete-confirm-input" class="form-control" placeholder={repo.name} autocomplete="off" />
             </div>
-            <p class="mb-2">To confirm, type the repository name:</p>
-            <p class="mb-2"><code class="fs-6">{repo.name}</code></p>
-            <input type="text" id="delete-confirm-input" class="form-control" placeholder={repo.name} autocomplete="off" />
+            <div data-role="progress-panel" class="d-none">
+              <div class="alert alert-info small d-flex gap-2 py-2 mb-3" role="alert">
+                <i class="bi bi-info-circle-fill"></i>
+                <div>
+                  <strong>Please stay on this page.</strong> Closing or reloading the tab
+                  may interrupt the operation and leave the repository in an
+                  inconsistent state.
+                </div>
+              </div>
+              <div class="d-flex align-items-center gap-3 mb-2">
+                <div class="spinner-border text-danger" role="status" data-role="progress-spinner">
+                  <span class="visually-hidden">Working…</span>
+                </div>
+                <div>
+                  <div class="fw-semibold" data-role="progress-label">Starting…</div>
+                  <div class="text-secondary small" data-role="progress-sub">Large repositories may take a while to remove.</div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-role="cancel">Cancel</button>
             <button type="button" class="btn btn-danger" id="delete-confirm-btn" disabled>
               <i class="bi bi-trash-fill me-1"></i>Delete permanently
             </button>
@@ -617,11 +659,111 @@ const backupRunning = activeLock !== undefined;
   const deleteInput = document.getElementById('delete-confirm-input') as HTMLInputElement | null;
   const deleteConfirmBtn = document.getElementById('delete-confirm-btn') as HTMLButtonElement | null;
 
+  interface ProgressStep { label: string; minMs: number; }
+
+  // Shared helper: locks the modal (no dismiss/backdrop/keyboard/close),
+  // swaps in the progress panel, rotates through step labels on a timer,
+  // guards against accidental navigation, then runs `doWork()`. On success
+  // shows a check-mark "Done" state; on error restores the confirm panel.
+  async function runWithProgress(
+    modalEl: HTMLElement,
+    confirmBtn: HTMLButtonElement,
+    confirmOriginalHtml: string,
+    workingHtml: string,
+    steps: ProgressStep[],
+    successLabel: string,
+    doWork: () => Promise<{ ok: true } | { ok: false; restore: boolean }>,
+  ): Promise<void> {
+    const confirmPanel = modalEl.querySelector<HTMLElement>('[data-role="confirm-panel"]');
+    const progressPanel = modalEl.querySelector<HTMLElement>('[data-role="progress-panel"]');
+    const progressLabel = modalEl.querySelector<HTMLElement>('[data-role="progress-label"]');
+    const progressSpinner = modalEl.querySelector<HTMLElement>('[data-role="progress-spinner"]');
+    const dismissBtn = modalEl.querySelector<HTMLElement>('[data-role="dismiss"]');
+    const cancelBtn = modalEl.querySelector<HTMLElement>('[data-role="cancel"]');
+
+    // Lock the modal instance.
+    const instance = Modal.getOrCreateInstance(modalEl);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cfg = (instance as any)._config as { backdrop: boolean | 'static'; keyboard: boolean };
+    const prevBackdrop = cfg.backdrop;
+    const prevKeyboard = cfg.keyboard;
+    cfg.backdrop = 'static';
+    cfg.keyboard = false;
+
+    if (dismissBtn) dismissBtn.classList.add('d-none');
+    if (cancelBtn) cancelBtn.classList.add('d-none');
+    confirmPanel?.classList.add('d-none');
+    progressPanel?.classList.remove('d-none');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = workingHtml;
+
+    const beforeUnload = (ev: BeforeUnloadEvent) => {
+      ev.preventDefault();
+      ev.returnValue = '';
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+
+    // Rotate through step labels. The final step stays pinned until
+    // `doWork` resolves; earlier steps each show for at least `minMs`.
+    let cancelled = false;
+    const cycleSteps = async (): Promise<void> => {
+      for (let i = 0; i < steps.length - 1; i++) {
+        if (cancelled) return;
+        if (progressLabel) progressLabel.textContent = steps[i].label;
+        await new Promise((r) => setTimeout(r, steps[i].minMs));
+      }
+      if (!cancelled && progressLabel && steps.length > 0) {
+        progressLabel.textContent = steps[steps.length - 1].label;
+      }
+    };
+    const cyclePromise = cycleSteps();
+
+    const restore = () => {
+      cancelled = true;
+      window.removeEventListener('beforeunload', beforeUnload);
+      cfg.backdrop = prevBackdrop;
+      cfg.keyboard = prevKeyboard;
+      if (dismissBtn) dismissBtn.classList.remove('d-none');
+      if (cancelBtn) cancelBtn.classList.remove('d-none');
+      progressPanel?.classList.add('d-none');
+      confirmPanel?.classList.remove('d-none');
+      confirmBtn.innerHTML = confirmOriginalHtml;
+      confirmBtn.disabled = false;
+    };
+
+    try {
+      const result = await doWork();
+      cancelled = true;
+      await cyclePromise;
+      if (result.ok) {
+        // Success state — keep the modal locked so the user sees the
+        // confirmation, then the caller's redirect kicks in.
+        if (progressLabel) progressLabel.textContent = successLabel;
+        if (progressSpinner) {
+          progressSpinner.outerHTML =
+            '<i class="bi bi-check-circle-fill text-success fs-3" data-role="progress-spinner"></i>';
+        }
+        window.removeEventListener('beforeunload', beforeUnload);
+      } else if (result.restore) {
+        restore();
+      } else {
+        // Error but modal stays closed (caller handled it).
+        restore();
+      }
+    } catch (e) {
+      cancelled = true;
+      await cyclePromise.catch(() => undefined);
+      restore();
+      throw e;
+    }
+  }
+
   if (archiveBtn && archiveModalEl && archiveInput && archiveConfirmBtn) {
     const expectedName = archiveBtn.dataset.repoName ?? '';
     const repoId = archiveBtn.closest('[data-repo-id]')?.getAttribute('data-repo-id')
       ?? (document.querySelector('[data-repo-id]') as HTMLElement | null)?.dataset.repoId
       ?? '';
+    const originalHtml = archiveConfirmBtn.innerHTML;
 
     archiveInput.addEventListener('input', () => {
       archiveConfirmBtn.disabled = archiveInput.value !== expectedName;
@@ -631,37 +773,55 @@ const backupRunning = activeLock !== undefined;
       archiveInput.value = '';
       archiveConfirmBtn.disabled = true;
       Modal.getOrCreateInstance(archiveModalEl).show();
-    });    archiveConfirmBtn.addEventListener('click', async () => {
+    });
+
+    archiveConfirmBtn.addEventListener('click', async () => {
       if (archiveInput.value !== expectedName) return;
-      archiveConfirmBtn.disabled = true;
-      try {
-        const res = await fetch(`/api/repos/${repoId}/archive`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ confirmName: archiveInput.value }),
-        });
-        if (res.ok) {
-          toastFn('Repository archived.', 'success');
-          setTimeout(() => { window.location.href = '/settings/repos/archived'; }, 400);
-        } else {
-          const j = await res.json().catch(() => ({}));
-          if (res.status === 409) {
-            toastFn('A backup cycle is currently running — please wait until it finishes.', 'danger');
-          } else {
-            toastFn(`Archive failed: ${j.error ?? res.statusText}`, 'danger');
+      const steps: ProgressStep[] = [
+        { label: 'Packing backup files into ZIP…', minMs: 800 },
+        { label: 'Removing original backup directory…', minMs: 600 },
+        { label: 'Updating database…', minMs: 400 },
+        { label: 'Finalizing…', minMs: 0 },
+      ];
+      await runWithProgress(
+        archiveModalEl,
+        archiveConfirmBtn,
+        originalHtml,
+        '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Archiving…',
+        steps,
+        'Archived — redirecting…',
+        async () => {
+          try {
+            const res = await fetch(`/api/repos/${repoId}/archive`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ confirmName: archiveInput.value }),
+            });
+            if (res.ok) {
+              toastFn('Repository archived.', 'success');
+              setTimeout(() => { window.location.href = '/settings/repos/archived'; }, 800);
+              return { ok: true } as const;
+            }
+            const j = await res.json().catch(() => ({}));
+            if (res.status === 409) {
+              toastFn('A backup cycle is currently running — please wait until it finishes.', 'danger');
+            } else {
+              toastFn(`Archive failed: ${j.error ?? res.statusText}`, 'danger');
+            }
+            return { ok: false, restore: true } as const;
+          } catch (e) {
+            toastFn(`Archive failed: ${(e as Error).message}`, 'danger');
+            return { ok: false, restore: true } as const;
           }
-          archiveConfirmBtn.disabled = false;
-        }
-      } catch (e) {
-        toastFn(`Archive failed: ${(e as Error).message}`, 'danger');
-        archiveConfirmBtn.disabled = false;
-      }
+        },
+      );
     });
   }
 
   if (deleteBtn && deleteModalEl && deleteInput && deleteConfirmBtn) {
     const expectedName = deleteBtn.dataset.repoName ?? '';
     const repoId = (document.querySelector('[data-repo-id]') as HTMLElement | null)?.dataset.repoId ?? '';
+    const originalHtml = deleteConfirmBtn.innerHTML;
 
     deleteInput.addEventListener('input', () => {
       deleteConfirmBtn.disabled = deleteInput.value !== expectedName;
@@ -675,29 +835,45 @@ const backupRunning = activeLock !== undefined;
 
     deleteConfirmBtn.addEventListener('click', async () => {
       if (deleteInput.value !== expectedName) return;
-      deleteConfirmBtn.disabled = true;
-      try {
-        const res = await fetch(`/api/repos/${repoId}`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ confirmName: deleteInput.value }),
-        });
-        if (res.ok) {
-          toastFn('Repository deleted.', 'success');
-          setTimeout(() => { window.location.href = '/settings/repos'; }, 400);
-        } else {
-          const j = await res.json().catch(() => ({}));
-          if (res.status === 409) {
-            toastFn('A backup cycle is currently running — please wait until it finishes.', 'danger');
-          } else {
-            toastFn(`Delete failed: ${j.error ?? res.statusText}`, 'danger');
+      const steps: ProgressStep[] = [
+        { label: 'Removing backup files from disk…', minMs: 800 },
+        { label: 'Deleting archive ZIP…', minMs: 400 },
+        { label: 'Removing database entry…', minMs: 400 },
+        { label: 'Updating provider blacklist…', minMs: 300 },
+        { label: 'Finalizing…', minMs: 0 },
+      ];
+      await runWithProgress(
+        deleteModalEl,
+        deleteConfirmBtn,
+        originalHtml,
+        '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Deleting…',
+        steps,
+        'Deleted — redirecting…',
+        async () => {
+          try {
+            const res = await fetch(`/api/repos/${repoId}`, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ confirmName: deleteInput.value }),
+            });
+            if (res.ok) {
+              toastFn('Repository deleted.', 'success');
+              setTimeout(() => { window.location.href = '/settings/repos'; }, 800);
+              return { ok: true } as const;
+            }
+            const j = await res.json().catch(() => ({}));
+            if (res.status === 409) {
+              toastFn('A backup cycle is currently running — please wait until it finishes.', 'danger');
+            } else {
+              toastFn(`Delete failed: ${j.error ?? res.statusText}`, 'danger');
+            }
+            return { ok: false, restore: true } as const;
+          } catch (e) {
+            toastFn(`Delete failed: ${(e as Error).message}`, 'danger');
+            return { ok: false, restore: true } as const;
           }
-          deleteConfirmBtn.disabled = false;
-        }
-      } catch (e) {
-        toastFn(`Delete failed: ${(e as Error).message}`, 'danger');
-        deleteConfirmBtn.disabled = false;
-      }
+        },
+      );
     });
   }
 </script>

@@ -27,7 +27,7 @@ RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash \
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
-        amd64) glab_arch='x86_64' ;; \
+        amd64) glab_arch='amd64' ;; \
         arm64) glab_arch='arm64' ;; \
         *) echo "Unsupported arch for glab: $arch" >&2; exit 1 ;; \
     esac; \

@@ -155,7 +155,7 @@ the environment.
 | Variable | Required | Description | Example |
 |---|---|---|---|
 | `MASTER_KEY` | **Yes** | 32-byte key (hex or base64) used to encrypt the admin password hash, provider PATs and the SMTP password at rest. Generate with `openssl rand -hex 32`. **The container refuses to start without it, and if you lose it all stored secrets are unrecoverable.** | `7f...` (64 hex chars) |
-| `PUBLIC_URL` | Required behind a reverse proxy | Comma-separated list of external URLs under which the UI is reachable (scheme + host + port). Browser requests whose `Origin` matches an entry here are accepted for state-changing operations. Without this, requests through a proxy that rewrites the host (Synology DSM portal, Traefik, nginx, subdomains) may be rejected with **403**. | `https://gitecho.example.com,https://nas.local:5000` |
+| `PUBLIC_URL` | Required behind a reverse proxy | Comma-separated list of external URLs under which the UI is reachable (scheme + host + port). Browser requests whose `Origin` matches an entry here are accepted for state-changing operations. Without this, requests through a proxy that rewrites the host (Synology DSM portal, Traefik, nginx, subdomains) may be rejected with **403**. Set to `*` to accept all origins and disable the CSRF origin check (not recommended). | `https://gitecho.example.com,https://nas.local:5000` |
 | `DATA_DIR` | No | Override the data mount path (SQLite database, sync metadata). | `/data` |
 | `CONFIG_DIR` | No | Override the config mount path (`repos.txt`, `settings.json`, `secrets.json`). | `/config` |
 | `BACKUPS_DIR` | No | Override the backups mount path (cloned repos / ZIPs). | `/backups` |

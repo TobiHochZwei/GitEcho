@@ -45,33 +45,43 @@ function bootstrapCredentialsOnce(): void {
   }
 }
 
-/** Parse PUBLIC_URL into a set of normalized allowed origins. */
-function allowedOrigins(): Set<string> {
+/**
+ * Parse PUBLIC_URL into a normalized origin allow-list. A literal `*` token
+ * (anywhere in the comma-separated list) flips the wildcard flag, which
+ * tells the CSRF origin check to accept any Origin header.
+ */
+function allowedOrigins(): { wildcard: boolean; hosts: Set<string> } {
   const raw = process.env.PUBLIC_URL ?? '';
-  const out = new Set<string>();
+  const hosts = new Set<string>();
+  let wildcard = false;
   for (const part of raw.split(',')) {
     const trimmed = part.trim();
     if (!trimmed) continue;
+    if (trimmed === '*') {
+      wildcard = true;
+      continue;
+    }
     try {
       const u = new URL(trimmed);
-      out.add(`${u.protocol}//${u.host}`);
+      hosts.add(`${u.protocol}//${u.host}`);
     } catch {
       // ignore invalid entries silently; README documents the format
     }
   }
-  return out;
+  return { wildcard, hosts };
 }
 
 function isOriginAllowed(origin: string | null, requestUrl: string): boolean {
   if (!origin) return true; // no Origin header (e.g. curl, some proxies on same-origin POST)
+  const configured = allowedOrigins();
+  if (configured.wildcard) return true; // operator opted out of the CSRF origin check
   try {
     const o = new URL(origin);
     const normalized = `${o.protocol}//${o.host}`;
     const req = new URL(requestUrl);
     const reqOrigin = `${req.protocol}//${req.host}`;
     if (normalized === reqOrigin) return true;
-    const configured = allowedOrigins();
-    if (configured.has(normalized)) return true;
+    if (configured.hosts.has(normalized)) return true;
     return false;
   } catch {
     return false;

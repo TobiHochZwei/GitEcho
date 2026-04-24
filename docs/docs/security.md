@@ -53,6 +53,7 @@ GitEcho uses Origin-based CSRF protection for all state-changing requests:
 
 - Requests whose `Origin` header matches the container's internal host are always accepted
 - When behind a reverse proxy, set `PUBLIC_URL` to your external URL(s) so the Origin check passes
+- Setting `PUBLIC_URL=*` disables the Origin check entirely (accept all origins). This is **not recommended** — see [Set `PUBLIC_URL` Behind a Proxy](#set-public_url-behind-a-proxy) below.
 
 ## Best Practices
 
@@ -70,6 +71,8 @@ When running behind a reverse proxy that rewrites the host (Synology DSM portal,
 ```bash
 PUBLIC_URL=https://gitecho.example.com,https://nas.local:5000
 ```
+
+As an escape hatch, `PUBLIC_URL=*` accepts all origins and disables the CSRF origin check. Prefer listing specific URLs — the wildcard lets any site the logged-in user visits drive state-changing requests while the session cookie is valid.
 
 ### Pin Image Tags
 

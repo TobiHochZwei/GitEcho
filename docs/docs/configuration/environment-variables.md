@@ -10,7 +10,7 @@
 
 | Variable | Description | Default |
 |---|---|---|
-| `PUBLIC_URL` | Comma-separated external URLs (scheme + host + port) for reverse proxy setups. Required when the UI is served under a different hostname than the container listens on. | — |
+| `PUBLIC_URL` | Comma-separated external URLs (scheme + host + port) for reverse proxy setups. Required when the UI is served under a different hostname than the container listens on. Set to `*` to accept all origins and disable the CSRF origin check (not recommended). | — |
 | `TZ` | IANA timezone name. Affects log timestamps, cron schedules, and `Date` values. | `UTC` |
 | `PUID` | Override the container user's UID to match host directory ownership. | — |
 | `PGID` | Override the container group's GID to match host directory ownership. | — |

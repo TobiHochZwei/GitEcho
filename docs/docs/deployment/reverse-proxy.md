@@ -15,6 +15,17 @@ PUBLIC_URL=https://gitecho.example.com,https://nas.local:5000
 
 Without this, state-changing requests (add/remove repo, save settings, etc.) are rejected with **403 Forbidden** because the browser's `Origin` header doesn't match the container's internal host.
 
+### Accept all origins (not recommended)
+
+As an escape hatch, set `PUBLIC_URL=*` to disable the CSRF origin check entirely:
+
+```bash
+PUBLIC_URL=*
+```
+
+!!! danger
+    This removes GitEcho's cross-site request protection. Any website the logged-in user visits can trigger state-changing requests (trigger backups, edit settings, delete repos) while the `gitecho_sid` session cookie is valid. Only use this on trusted networks or for short-term debugging — prefer listing the specific URLs instead.
+
 ## Example Configurations
 
 ### Caddy

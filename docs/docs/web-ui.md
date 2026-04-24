@@ -3,7 +3,7 @@
 GitEcho ships with a full-featured web interface built on **AdminLTE 4** (Bootstrap 5). It supports light and dark mode (toggle in the top bar, persisted in `localStorage`).
 
 ## Dashboard (`/`)
-
+ 
 The main landing page shows an at-a-glance overview:
 
 - **Total repositories** being backed up

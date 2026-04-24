@@ -14,7 +14,7 @@ The main landing page shows an at-a-glance overview:
 - **Unavailable Upstream** count and warning banner when any repository can't be reached
 
 ## Repositories (`/repos`)
-
+ 
 Lists all known repositories with:
 
 - Provider icon (GitHub, Azure DevOps, GitLab)

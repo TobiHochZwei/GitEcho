@@ -132,15 +132,6 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
       </Card>
     </div>
 
-    <div class="col-12 col-lg-4">
-      <Card title="Trigger backup now" icon="bi-play-circle" variant="primary">
-        <p class="small mb-3">Runs an ad-hoc backup using the current configuration. Only one backup may run at a time across the worker and web processes.</p>
-        <button type="button" id="trigger-btn" class="btn btn-light w-100">
-          <i class="bi bi-play-circle me-1"></i>Run backup
-        </button>
-        <p id="status" class="small mt-2 mb-0"></p>
-      </Card>
-    </div>
   </div>
 </Layout>
 
@@ -149,8 +140,6 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
   import cronstrue from 'cronstrue';
 
   const form = document.getElementById('general-form') as HTMLFormElement | null;
-  const triggerBtn = document.getElementById('trigger-btn') as HTMLButtonElement | null;
-  const statusEl = document.getElementById('status');
   const cronInput = document.getElementById('cronSchedule') as HTMLInputElement | null;
   const cronHuman = document.getElementById('cronHuman');
 
@@ -192,37 +181,4 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
     }
   });
 
-  async function refreshStatus() {
-    try {
-      const res = await fetch('/api/backup/trigger');
-      const j = await res.json();
-      if (!statusEl || !triggerBtn) return;
-      if (j.running) {
-        statusEl.innerHTML = `<i class="bi bi-arrow-repeat me-1"></i>Backup running (pid ${j.lock?.pid ?? '?'}, started ${j.lock?.startedAt ?? '?'})`;
-        statusEl.className = 'small mt-2 mb-0 text-warning';
-        triggerBtn.disabled = true;
-      } else {
-        statusEl.innerHTML = '<i class="bi bi-check-circle me-1"></i>No backup running';
-        statusEl.className = 'small mt-2 mb-0 text-secondary';
-        triggerBtn.disabled = false;
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  triggerBtn?.addEventListener('click', async () => {
-    triggerBtn.disabled = true;
-    const res = await fetch('/api/backup/trigger', { method: 'POST' });
-    const j = await res.json().catch(() => ({}));
-    if (res.ok) {
-      toast('Backup started', 'success');
-    } else {
-      toast(j.error || 'Failed to start backup', 'danger');
-    }
-    refreshStatus();
-  });
-
-  refreshStatus();
-  setInterval(refreshStatus, 4000);
 </script>

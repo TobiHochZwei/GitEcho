@@ -4,6 +4,7 @@ site_url: https://tobihochzwei.github.io/GitEcho/
 repo_url: https://github.com/TobiHochZwei/GitEcho
 repo_name: TobiHochZwei/GitEcho
 edit_uri: edit/main/docs/docs/
+docs_dir: docs
 
 theme:
   name: material

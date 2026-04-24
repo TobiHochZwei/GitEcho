@@ -80,6 +80,16 @@ export interface BackupStats {
 
 let db: DatabaseInstance | undefined;
 
+// SQL expression returning the current UTC timestamp in ISO-8601 form
+// with millisecond precision and a trailing `Z` — identical to the
+// output of `new Date().toISOString()` in JS. Using this everywhere a
+// timestamp is written from SQL keeps DB values timezone-neutral and
+// parseable by `new Date(value)` without drift. SQLite's bare
+// `datetime('now')` returns `YYYY-MM-DD HH:MM:SS` (no `Z`), which JS
+// parses as *local* time and causes duration math to be off by the
+// local UTC offset.
+const ISO_UTC_NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+
 // ─── Schema ──────────────────────────────────────────────────────────
 
 const SCHEMA = `
@@ -99,8 +109,8 @@ const SCHEMA = `
     archived INTEGER NOT NULL DEFAULT 0,
     archived_at TEXT,
     archive_path TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (${ISO_UTC_NOW}),
+    updated_at TEXT NOT NULL DEFAULT (${ISO_UTC_NOW})
   );
 
   CREATE TABLE IF NOT EXISTS backup_runs (
@@ -287,7 +297,7 @@ export function upsertRepository(repo: {
           provider = excluded.provider,
           owner = excluded.owner,
           name = excluded.name,
-          updated_at = datetime('now')
+          updated_at = ${ISO_UTC_NOW}
       `,
     )
     .run(repo);
@@ -371,11 +381,11 @@ export function updateRepositorySync(
   database
     .prepare(
       `UPDATE repositories
-       SET last_sync_at = datetime('now'),
+       SET last_sync_at = ${ISO_UTC_NOW},
            last_sync_status = @status,
            last_error = @error,
            checksum = COALESCE(@checksum, checksum),
-           updated_at = datetime('now')
+           updated_at = ${ISO_UTC_NOW}
        WHERE id = @id`,
     )
     .run({ id, status, error: error ?? null, checksum: checksum ?? null });
@@ -404,7 +414,7 @@ export function updateRepositoryNotes(id: number, notes: string | null): boolean
     .prepare(
       `UPDATE repositories
           SET notes = @notes,
-              updated_at = datetime('now')
+              updated_at = ${ISO_UTC_NOW}
         WHERE id = @id`,
     )
     .run({ id, notes: value });
@@ -422,7 +432,7 @@ export function setRepositorySkipBackup(id: number, skip: boolean): boolean {
     .prepare(
       `UPDATE repositories
           SET skip_backup = @skip,
-              updated_at = datetime('now')
+              updated_at = ${ISO_UTC_NOW}
         WHERE id = @id`,
     )
     .run({ id, skip: skip ? 1 : 0 });
@@ -444,7 +454,7 @@ export function setRepositoryDebugTrace(id: number, enabled: boolean): boolean {
     .prepare(
       `UPDATE repositories
           SET debug_trace = @enabled,
-              updated_at = datetime('now')
+              updated_at = ${ISO_UTC_NOW}
         WHERE id = @id`,
     )
     .run({ id, enabled: enabled ? 1 : 0 });
@@ -462,9 +472,9 @@ export function archiveRepository(id: number, archivePath: string): boolean {
     .prepare(
       `UPDATE repositories
           SET archived = 1,
-              archived_at = datetime('now'),
+              archived_at = ${ISO_UTC_NOW},
               archive_path = @archivePath,
-              updated_at = datetime('now')
+              updated_at = ${ISO_UTC_NOW}
         WHERE id = @id`,
     )
     .run({ id, archivePath });
@@ -480,7 +490,7 @@ export function unarchiveRepository(id: number): boolean {
           SET archived = 0,
               archived_at = NULL,
               archive_path = NULL,
-              updated_at = datetime('now')
+              updated_at = ${ISO_UTC_NOW}
         WHERE id = @id`,
     )
     .run({ id });
@@ -562,7 +572,7 @@ export function createBackupRun(mode: string): BackupRun {
   const result = database
     .prepare(
       `INSERT INTO backup_runs (started_at, status, backup_mode)
-       VALUES (datetime('now'), 'running', @mode)`,
+       VALUES (${ISO_UTC_NOW}, 'running', @mode)`,
     )
     .run({ mode });
 
@@ -646,7 +656,7 @@ export function createBackupItem(item: {
   const result = database
     .prepare(
       `INSERT INTO backup_items (run_id, repository_id, status, started_at)
-       VALUES (@runId, @repositoryId, 'pending', datetime('now'))`,
+       VALUES (@runId, @repositoryId, 'pending', ${ISO_UTC_NOW})`,
     )
     .run({ runId: item.runId, repositoryId: item.repositoryId });
 
@@ -727,7 +737,7 @@ export function markStuckRunsFailed(reason = 'Process terminated before run comp
     .prepare(
       `UPDATE backup_runs
           SET status = 'cancelled',
-              completed_at = COALESCE(completed_at, datetime('now')),
+              completed_at = COALESCE(completed_at, ${ISO_UTC_NOW}),
               error_summary = COALESCE(error_summary, 'Cancelled by user')
         WHERE status = 'running' AND cancellation_requested = 1`,
     )
@@ -736,7 +746,7 @@ export function markStuckRunsFailed(reason = 'Process terminated before run comp
     .prepare(
       `UPDATE backup_runs
           SET status = 'failed',
-              completed_at = COALESCE(completed_at, datetime('now')),
+              completed_at = COALESCE(completed_at, ${ISO_UTC_NOW}),
               error_summary = COALESCE(error_summary, ?)
         WHERE status = 'running'`,
     )

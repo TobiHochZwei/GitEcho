@@ -18,6 +18,7 @@ import { backupOption2 } from './option2';
 import { backupOption3 } from './option3';
 import { logger, redactSecrets } from '../logger.js';
 import { collectPatExpiryWarnings, type PatWarning } from '../smtp.js';
+import { getStorageUsage } from '../stats.js';
 
 export interface NewRepoEntry {
   provider: string;
@@ -33,6 +34,7 @@ export interface BackupResult {
   successCount: number;
   failedCount: number;
   unavailableCount: number;
+  skippedCount: number;
   failures: Array<{ repo: string; error: string }>;
   unavailable: Array<{ repo: string; url: string; error: string }>;
   backupMode: string;
@@ -63,6 +65,7 @@ export async function runBackup(): Promise<BackupResult> {
   let successCount = 0;
   let failedCount = 0;
   let unavailableCount = 0;
+  let skippedCount = 0;
 
   // PAT expiry — collect so the scheduler can include it in the single
   // consolidated cycle email instead of firing separate notifications.
@@ -108,6 +111,22 @@ export async function runBackup(): Promise<BackupResult> {
       );
       failures.push({ repo: repoLabel, error: 'DB upsert returned no row' });
       failedCount++;
+      continue;
+    }
+
+    // User-requested skip: don't clone/pull this repo, don't count it as
+    // a failure. A backup_item row is still created so the run history
+    // shows an explicit "skipped" entry for the repo.
+    if (dbRepo.skip_backup === 1) {
+      const item = createBackupItem({ runId: run.id, repositoryId: dbRepo.id });
+      if (item && typeof item.id === 'number') {
+        updateBackupItem(item.id, {
+          status: 'skipped',
+          completed_at: new Date().toISOString(),
+        });
+      }
+      skippedCount++;
+      logger.info(`[backup] ⏭ ${repoLabel} skipped (manually excluded)`);
       continue;
     }
 
@@ -238,12 +257,23 @@ export async function runBackup(): Promise<BackupResult> {
     repos_success: successCount,
     repos_failed: failedCount,
     repos_unavailable: unavailableCount,
+    repos_skipped: skippedCount,
     error_summary: errorSummary,
   });
 
   logger.info(
-    `[backup] Completed: ${successCount}/${allRepos.length} succeeded, ${failedCount} failed, ${unavailableCount} unavailable`,
+    `[backup] Completed: ${successCount}/${allRepos.length} succeeded, ${failedCount} failed, ${unavailableCount} unavailable, ${skippedCount} skipped`,
   );
+
+  // Refresh the persistent storage-usage cache so the dashboard shows
+  // fresh totals without having to walk the filesystem on render. This
+  // is best-effort: any failure here is non-fatal for the backup run.
+  try {
+    const cfg = getConfig();
+    getStorageUsage(cfg.backupsDir, { force: true });
+  } catch (e) {
+    logger.warn(`[backup] Storage usage cache refresh failed: ${(e as Error).message}`);
+  }
 
   return {
     runId: run.id,
@@ -253,6 +283,7 @@ export async function runBackup(): Promise<BackupResult> {
     successCount,
     failedCount,
     unavailableCount,
+    skippedCount,
     failures,
     unavailable,
     backupMode,

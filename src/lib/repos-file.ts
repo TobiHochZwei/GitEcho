@@ -120,3 +120,54 @@ export function removeRepoUrl(url: string): boolean {
   if (removed) writeReposFile(next);
   return removed;
 }
+
+/**
+ * Remove URL entries from repos.txt that are already covered by the given
+ * set of URLs (typically every repo the database knows about). Comment and
+ * blank lines are preserved in their original positions — only URL lines
+ * are considered. Comparison is case-insensitive and tolerant of `.git`.
+ *
+ * Returns the list of URLs that were actually removed.
+ */
+export function cleanupReposFile(coveredUrls: Iterable<string>): { removed: string[] } {
+  const coverSet = new Set<string>();
+  for (const url of coveredUrls) {
+    coverSet.add(url.trim().replace(/\.git$/, '').toLowerCase());
+  }
+  if (coverSet.size === 0) return { removed: [] };
+
+  const lines = readReposFile();
+  const next: RepoLine[] = [];
+  const removed: string[] = [];
+  for (const line of lines) {
+    if (line.kind === 'url' && line.url) {
+      const key = line.url.replace(/\.git$/, '').toLowerCase();
+      if (coverSet.has(key)) {
+        removed.push(line.url);
+        continue;
+      }
+    }
+    next.push(line);
+  }
+  if (removed.length > 0) writeReposFile(next);
+  return { removed };
+}
+
+/**
+ * Preview what `cleanupReposFile` would remove without writing any changes.
+ */
+export function previewCleanupReposFile(coveredUrls: Iterable<string>): string[] {
+  const coverSet = new Set<string>();
+  for (const url of coveredUrls) {
+    coverSet.add(url.trim().replace(/\.git$/, '').toLowerCase());
+  }
+  if (coverSet.size === 0) return [];
+  return readReposFile()
+    .filter(
+      (line): line is RepoLine & { url: string } =>
+        line.kind === 'url' &&
+        !!line.url &&
+        coverSet.has(line.url.replace(/\.git$/, '').toLowerCase()),
+    )
+    .map((line) => line.url);
+}

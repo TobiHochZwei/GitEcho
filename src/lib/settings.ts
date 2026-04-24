@@ -30,8 +30,12 @@ export interface ProviderSettings {
    */
   autoDiscover?: boolean;
   org?: string; // Azure DevOps only
-  /** Append newly-discovered repository URLs to /config/repos.txt. Defaults to false. */
-  autoAppendToReposTxt?: boolean;
+  /**
+   * After each successful discovery cycle, remove URLs from /config/repos.txt
+   * that are already covered by the database (i.e. redundant pins).
+   * Defaults to true — keeps repos.txt focused on actual extras.
+   */
+  autoCleanupReposTxt?: boolean;
   /** Send an SMTP notification when previously-unseen repos are discovered. Defaults to true. */
   notifyOnNewRepo?: boolean;
   /** Filters applied to the discovery result before persistence. */

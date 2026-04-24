@@ -21,8 +21,8 @@ export interface ProviderConfig {
   autoDiscover?: boolean;
   /** Only used by Azure DevOps: organization (bare name or full URL). */
   org?: string;
-  /** Append newly-discovered URLs to /config/repos.txt. Defaults to false. */
-  autoAppendToReposTxt?: boolean;
+  /** Remove repos.txt URLs already covered by discovery. Defaults to true. */
+  autoCleanupReposTxt?: boolean;
   /** Notify by email when previously-unseen repos are discovered. Defaults to true. */
   notifyOnNewRepo?: boolean;
   /** Filters applied during discovery. */
@@ -82,7 +82,7 @@ function loadProvider(
   storedAutoDiscover: boolean | undefined,
   storedOrg: string | undefined,
   envOrg: string | undefined,
-  storedAutoAppend: boolean | undefined,
+  storedAutoCleanup: boolean | undefined,
   storedNotifyOnNew: boolean | undefined,
   storedFilters: DiscoveryFilterSettings | undefined,
 ): ProviderConfig | undefined {
@@ -98,7 +98,7 @@ function loadProvider(
     patExpires: expires,
     autoDiscover: storedAutoDiscover,
     org: storedOrg ?? envOrg,
-    autoAppendToReposTxt: storedAutoAppend,
+    autoCleanupReposTxt: storedAutoCleanup,
     notifyOnNewRepo: storedNotifyOnNew,
     filters: storedFilters,
   };
@@ -142,7 +142,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       settings.github?.autoDiscover,
       undefined,
       undefined,
-      settings.github?.autoAppendToReposTxt,
+      settings.github?.autoCleanupReposTxt,
       settings.github?.notifyOnNewRepo,
       settings.github?.filters,
     );
@@ -159,7 +159,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       settings.azureDevOps?.autoDiscover,
       settings.azureDevOps?.org,
       env.AZUREDEVOPS_ORG,
-      settings.azureDevOps?.autoAppendToReposTxt,
+      settings.azureDevOps?.autoCleanupReposTxt,
       settings.azureDevOps?.notifyOnNewRepo,
       settings.azureDevOps?.filters,
     );

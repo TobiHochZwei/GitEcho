@@ -30,7 +30,11 @@ try {
   recentRuns = getBackupRuns(5);
   history = getRunHistory(30);
   try {
-    storage = getStorageUsage(config.backupsDir);
+    // Never walk the FS from the SSR path — the worker refreshes this
+    // cache after every backup run and the user can press "Recompute"
+    // to force a fresh walk. If no cache exists yet we get zeros and a
+    // blank `computedAt`, which the UI renders as "not computed yet".
+    storage = getStorageUsage(config.backupsDir, { maxAgeMs: Infinity });
   } catch (e) {
     storage = { totalBytes: 0, byProvider: {}, computedAt: '' };
   }
@@ -182,7 +186,15 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
     <div class="col-12 col-lg-4">
       <Card title="Storage usage" icon="bi-hdd">
         <h2 class="display-6 fw-semibold mb-1" id="storage-total">{formatBytes(storage.totalBytes)}</h2>
-        <p class="text-secondary mb-2 small">Total under <code>{config.backupsDir}</code></p>
+        <p class="text-secondary mb-2 small">
+          Total under <code>{config.backupsDir}</code>
+          <br />
+          <span id="storage-age">
+            {storage.computedAt
+              ? <>computed {formatAge(Math.max(0, Math.round((Date.now() - new Date(storage.computedAt).getTime()) / 1000)))}</>
+              : <em>not computed yet — run a backup or press Recompute</em>}
+          </span>
+        </p>
         <ul class="list-unstyled mb-2 small" id="storage-breakdown">
           {Object.entries(storage.byProvider).map(([p, b]) => (
             <li class="d-flex justify-content-between border-bottom py-1">
@@ -385,6 +397,8 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
         .map(([p, b]) => `<li class="d-flex justify-content-between border-bottom py-1"><span class="text-capitalize">${p}</span><span class="font-monospace">${formatBytes(b)}</span></li>`)
         .join('');
     }
+    const ageEl = document.getElementById('storage-age');
+    if (ageEl) ageEl.textContent = 'computed just now';
     toast('Storage usage updated', 'success');
   });
 

@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { logger, redactSecrets } from '../logger.js';
 
 import { getConfig } from '../config.js';
-import { rethrowAsUnavailableIfMatch } from './errors.js';
+import { classifyGitError, rethrowAsUnavailableIfMatch } from './errors.js';
 import type { ProviderPlugin, RepositoryInfo } from './interface.js';
 
 const execFileAsync = promisify(execFile);
@@ -13,6 +13,78 @@ const execFileAsync = promisify(execFile);
 // Matches https://dev.azure.com/{org}/{project}/_git/{repo}
 const AZURE_DEVOPS_URL_RE =
   /^https:\/\/dev\.azure\.com\/(?<org>[^/]+)\/(?<project>[^/]+)\/_git\/(?<repo>[^/\s]+)$/;
+
+// Matches legacy https://{org}.visualstudio.com[/DefaultCollection]/{project}/_git/{repo}
+const LEGACY_VSTS_URL_RE =
+  /^https:\/\/(?<org>[^./]+)\.visualstudio\.com(?:\/DefaultCollection)?\/(?<project>[^/]+)\/_git\/(?<repo>[^/\s?#]+)/i;
+
+/**
+ * Rewrite legacy `<org>.visualstudio.com[/DefaultCollection]/...` URLs to the
+ * modern `dev.azure.com/<org>/...` form. The legacy endpoint is notorious
+ * for unstable HTTP/2 transfers on large repos ("early EOF",
+ * "HTTP/2 stream CANCEL"), while dev.azure.com is far more reliable.
+ * URLs that already point at dev.azure.com (or any unknown host) are returned
+ * unchanged.
+ */
+function normalizeRepoUrl(url: string): string {
+  const match = url.match(LEGACY_VSTS_URL_RE);
+  if (!match?.groups) return url;
+  const { org, project, repo } = match.groups;
+  return `https://dev.azure.com/${org}/${project}/_git/${repo}`;
+}
+
+/**
+ * Extra `-c` flags prepended to every git invocation to work around two
+ * common failure modes when cloning large Azure DevOps / GitHub repos:
+ *   - HTTP/2 stream cancellations ("curl 92 … CANCEL", "early EOF") → force
+ *     HTTP/1.1, which is dramatically more tolerant of proxies/firewalls.
+ *   - Large pack files exceeding the default POST buffer → bump to 500 MB.
+ */
+const GIT_TRANSPORT_FLAGS: string[] = [
+  '-c',
+  'http.version=HTTP/1.1',
+  '-c',
+  'http.postBuffer=524288000',
+];
+
+/** Prepend the transport-hardening `-c` flags to a git argv. */
+function gitArgs(...args: string[]): string[] {
+  return [...GIT_TRANSPORT_FLAGS, ...args];
+}
+
+/**
+ * Retry an async operation a few times with linear backoff. Intended for
+ * `git clone` only — `fetch`/`pull` are already retried implicitly by the
+ * next scheduled backup cycle, and retrying would only delay surfacing a
+ * real problem.
+ */
+async function retry<T>(
+  fn: () => Promise<T>,
+  {
+    attempts = 3,
+    backoffMs = 2000,
+    shouldRetry = () => true,
+    onRetry,
+  }: {
+    attempts?: number;
+    backoffMs?: number;
+    shouldRetry?: (err: unknown) => boolean;
+    onRetry?: (err: unknown, attempt: number) => void | Promise<void>;
+  } = {},
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === attempts || !shouldRetry(err)) throw err;
+      if (onRetry) await onRetry(err, attempt);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs * attempt));
+    }
+  }
+  throw lastErr;
+}
 
 /** Run a command and return its stdout, trimming trailing whitespace. */
 async function execCommand(
@@ -285,9 +357,33 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
   async cloneRepository(repoUrl: string, targetDir: string): Promise<void> {
     const authenticatedUrl = this.getAuthenticatedUrl(repoUrl);
     try {
-      await execCommand('git', ['clone', authenticatedUrl, targetDir], {
-        env: nonInteractiveGitEnv(),
-      });
+      await retry(
+        () =>
+          execCommand('git', gitArgs('clone', authenticatedUrl, targetDir), {
+            env: nonInteractiveGitEnv(),
+          }),
+        {
+          shouldRetry: (err) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            // Don't retry genuine "repo gone / no access" errors — retrying
+            // would only waste time before the inevitable failure.
+            return !classifyGitError(msg);
+          },
+          onRetry: async (err, attempt) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            logger.warn(
+              `[azuredevops] Clone attempt ${attempt} failed for "${repoUrl}", retrying: ${redactSecrets(msg)}`,
+            );
+            // `git clone` refuses to write into a non-empty directory, so
+            // clean up any partial data from the failed attempt.
+            try {
+              await rm(targetDir, { recursive: true, force: true });
+            } catch {
+              // Best-effort — next attempt will surface any real problem.
+            }
+          },
+        },
+      );
     } catch (error) {
       rethrowAsUnavailableIfMatch(error, repoUrl);
     }
@@ -300,20 +396,104 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
     await this.healRemoteUrl(repoDir);
 
     try {
-      await execCommand('git', ['-C', repoDir, 'fetch', '--all'], {
+      // `--prune` ensures deleted upstream branches disappear from
+      // refs/remotes/origin/* so `set-head --auto` below can resolve the
+      // current default branch correctly.
+      await execCommand('git', gitArgs('-C', repoDir, 'fetch', '--all', '--prune'), {
         env: nonInteractiveGitEnv(),
       });
     } catch (error) {
       rethrowAsUnavailableIfMatch(error, repoDir);
     }
 
+    await this.fastForwardToRemoteDefault(repoDir);
+  }
+
+  /**
+   * Fast-forward the working copy to the remote's current state, tolerating
+   * upstream branch renames/deletions (e.g. "master" → "main"):
+   *   1. Refresh origin/HEAD so we know the current remote default.
+   *   2. If the local branch still exists on the remote → ff-only merge.
+   *   3. Otherwise → switch the local checkout to the new remote default.
+   *   4. On genuine divergence → warn and return (never force).
+   */
+  private async fastForwardToRemoteDefault(repoDir: string): Promise<void> {
+    let remoteDefault: string | undefined;
     try {
-      await execCommand('git', ['-C', repoDir, 'pull', '--ff-only'], {
+      await execCommand('git', gitArgs('-C', repoDir, 'remote', 'set-head', 'origin', '--auto'), {
         env: nonInteractiveGitEnv(),
       });
+      const ref = await execCommand(
+        'git',
+        gitArgs('-C', repoDir, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'),
+        { env: nonInteractiveGitEnv() },
+      );
+      // ref looks like "origin/main" — strip the "origin/" prefix.
+      remoteDefault = ref.replace(/^origin\//, '');
     } catch (error) {
       logger.warn(
-        `[azuredevops] Fast-forward pull failed for "${repoDir}" (branches may have diverged):`,
+        `[azuredevops] Could not determine remote default branch for "${repoDir}":`,
+        error instanceof Error ? error.message : error,
+      );
+      return;
+    }
+
+    let currentLocal: string | undefined;
+    try {
+      currentLocal = await execCommand(
+        'git',
+        gitArgs('-C', repoDir, 'rev-parse', '--abbrev-ref', 'HEAD'),
+        { env: nonInteractiveGitEnv() },
+      );
+    } catch {
+      currentLocal = undefined;
+    }
+
+    // Does the local branch still exist on the remote?
+    const currentTrackedOnRemote =
+      !!currentLocal &&
+      (await execFileAsync('git', ['-C', repoDir, 'rev-parse', '--verify', `refs/remotes/origin/${currentLocal}`], {
+        env: nonInteractiveGitEnv(),
+      })
+        .then(() => true)
+        .catch(() => false));
+
+    if (currentTrackedOnRemote && currentLocal) {
+      try {
+        await execCommand(
+          'git',
+          gitArgs('-C', repoDir, 'merge', '--ff-only', `origin/${currentLocal}`),
+          { env: nonInteractiveGitEnv() },
+        );
+      } catch (error) {
+        logger.warn(
+          `[azuredevops] Fast-forward pull failed for "${repoDir}" (branches may have diverged):`,
+          error instanceof Error ? error.message : error,
+        );
+      }
+      return;
+    }
+
+    // Current local branch no longer exists upstream — switch to the remote default.
+    if (!remoteDefault) {
+      logger.warn(
+        `[azuredevops] Local branch "${currentLocal}" is gone upstream and no remote default could be resolved for "${repoDir}"`,
+      );
+      return;
+    }
+
+    try {
+      await execCommand(
+        'git',
+        gitArgs('-C', repoDir, 'checkout', '-B', remoteDefault, `origin/${remoteDefault}`),
+        { env: nonInteractiveGitEnv() },
+      );
+      logger.info(
+        `[azuredevops] Remote default branch changed ${currentLocal ?? '?'} → ${remoteDefault} for "${repoDir}", switched local checkout`,
+      );
+    } catch (error) {
+      logger.warn(
+        `[azuredevops] Failed to switch "${repoDir}" to new default branch "${remoteDefault}":`,
         error instanceof Error ? error.message : error,
       );
     }
@@ -331,7 +511,14 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
         /https:\/\/[^/@\s]+(?::[^/@\s]+)?@dev\.azure\.com\//i,
         'https://dev.azure.com/',
       );
-      const fresh = this.getAuthenticatedUrl(cleaned);
+      // Also migrate legacy *.visualstudio.com origins to dev.azure.com —
+      // the legacy endpoint suffers from flaky HTTP/2 transfers on large repos.
+      const withoutLegacyCreds = cleaned.replace(
+        /https:\/\/[^/@\s]+(?::[^/@\s]+)?@([^./]+)\.visualstudio\.com\//i,
+        'https://$1.visualstudio.com/',
+      );
+      const normalized = normalizeRepoUrl(withoutLegacyCreds);
+      const fresh = this.getAuthenticatedUrl(normalized);
       if (fresh !== current) {
         await execCommand('git', ['-C', repoDir, 'remote', 'set-url', 'origin', fresh], {
           env: nonInteractiveGitEnv(),
@@ -344,11 +531,12 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
 
   getAuthenticatedUrl(repoUrl: string): string {
     const config = getConfig();
-    if (!config.azureDevOps?.pat) return repoUrl;
+    const normalized = normalizeRepoUrl(repoUrl);
+    if (!config.azureDevOps?.pat) return normalized;
 
     // Strip any previously-embedded credentials so a rotated PAT always wins
     // (old clones may have the previous token baked into their remote URL).
-    const cleaned = repoUrl.replace(
+    const cleaned = normalized.replace(
       /^(https:\/\/)[^/@\s]+(?::[^/@\s]+)?@dev\.azure\.com\//i,
       '$1dev.azure.com/',
     );

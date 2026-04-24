@@ -14,8 +14,8 @@ const adoOrg = settings.azureDevOps?.org ?? cfg.azureDevOps?.org ?? '';
 
 const ghAutoDiscover = settings.github?.autoDiscover ?? true;
 const adoAutoDiscover = settings.azureDevOps?.autoDiscover ?? true;
-const ghAutoAppend = settings.github?.autoAppendToReposTxt ?? false;
-const adoAutoAppend = settings.azureDevOps?.autoAppendToReposTxt ?? false;
+const ghAutoCleanup = settings.github?.autoCleanupReposTxt ?? true;
+const adoAutoCleanup = settings.azureDevOps?.autoCleanupReposTxt ?? true;
 const ghNotifyOnNew = settings.github?.notifyOnNewRepo ?? true;
 const adoNotifyOnNew = settings.azureDevOps?.notifyOnNewRepo ?? true;
 
@@ -39,7 +39,7 @@ const providers = [
     stored: ghStored,
     expires: ghExpires,
     autoDiscover: ghAutoDiscover,
-    autoAppend: ghAutoAppend,
+    autoCleanup: ghAutoCleanup,
     notifyOnNew: ghNotifyOnNew,
     allow: ghAllow,
     deny: ghDeny,
@@ -54,7 +54,7 @@ const providers = [
     stored: adoStored,
     expires: adoExpires,
     autoDiscover: adoAutoDiscover,
-    autoAppend: adoAutoAppend,
+    autoCleanup: adoAutoCleanup,
     notifyOnNew: adoNotifyOnNew,
     allow: adoAllow,
     deny: adoDeny,
@@ -175,8 +175,13 @@ const providers = [
                   <label class="form-check-label" for={`autoDiscover-${p.key}`}>Auto-discover all repos visible to this PAT</label>
                 </div>
                 <div class="form-check form-switch mb-2">
-                  <input class="form-check-input" type="checkbox" name="autoAppendToReposTxt" id={`autoAppend-${p.key}`} checked={p.autoAppend} />
-                  <label class="form-check-label" for={`autoAppend-${p.key}`}>Append newly-discovered repos to <code>repos.txt</code></label>
+                  <input class="form-check-input" type="checkbox" name="autoCleanupReposTxt" id={`autoCleanup-${p.key}`} checked={p.autoCleanup} />
+                  <label class="form-check-label" for={`autoCleanup-${p.key}`}>Auto-clean <code>repos.txt</code> after discovery</label>
+                  <div class="form-text small">
+                    Removes URLs from <code>repos.txt</code> that are already
+                    covered by auto-discovery, so the file stays focused on
+                    <em>extras</em> (repos discovery can't see). Recommended.
+                  </div>
                 </div>
                 <div class="form-check form-switch">
                   <input class="form-check-input" type="checkbox" name="notifyOnNewRepo" id={`notifyOnNew-${p.key}`} checked={p.notifyOnNew} disabled={!smtpConfigured} />
@@ -253,7 +258,7 @@ const providers = [
       const exp = fd.get('patExpires');
       if (exp !== null) out.patExpires = exp;
       out.autoDiscover = (form.querySelector('input[name="autoDiscover"]') as HTMLInputElement).checked;
-      out.autoAppendToReposTxt = (form.querySelector('input[name="autoAppendToReposTxt"]') as HTMLInputElement).checked;
+      out.autoCleanupReposTxt = (form.querySelector('input[name="autoCleanupReposTxt"]') as HTMLInputElement).checked;
       out.notifyOnNewRepo = (form.querySelector('input[name="notifyOnNewRepo"]') as HTMLInputElement).checked;
       out.filters = {
         ownerAllowList: parseList(fd.get('ownerAllowList')),

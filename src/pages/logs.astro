@@ -60,7 +60,7 @@ const currentLevel = settings.logLevel ?? effectiveLevel();
     <div class="d-flex gap-2 mb-2 align-items-center">
       <div class="form-check form-switch mb-0">
         <input class="form-check-input" type="checkbox" id="auto-refresh" checked />
-        <label class="form-check-label small" for="auto-refresh">Auto-refresh (3s)</label>
+        <label class="form-check-label small" for="auto-refresh">Auto-refresh (10s)</label>
       </div>
       <button type="button" id="refresh-now" class="btn btn-sm btn-outline-secondary">
         <i class="bi bi-arrow-clockwise me-1"></i>Refresh
@@ -201,7 +201,7 @@ const currentLevel = settings.logLevel ?? effectiveLevel();
     refreshTimer = window.setInterval(() => {
       if (paused) return;
       fetchPage(undefined, false);
-    }, 3000);
+    }, 10000);
   }
 
   document.getElementById('refresh-now')!.addEventListener('click', () => fetchPage(undefined, false));

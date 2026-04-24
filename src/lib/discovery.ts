@@ -18,7 +18,7 @@ import { getConfig } from './config.js';
 import { isNewRepository, upsertRepository } from './database.js';
 import type { ProviderPlugin, RepositoryInfo } from './plugins/interface.js';
 import { getPluginRegistry } from './plugins/interface.js';
-import { addRepoUrl } from './repos-file.js';
+import { cleanupReposFile } from './repos-file.js';
 import type { DiscoveryFilterSettings } from './settings.js';
 import { notifyNewRepositories } from './smtp.js';
 import { logger } from './logger.js';
@@ -35,7 +35,6 @@ export interface DiscoveryProviderResult {
   total: number;
   newlyDiscovered: RepositoryInfo[];
   filteredOut: number;
-  appendedToReposTxt: number;
   authenticated: boolean;
 }
 
@@ -48,8 +47,6 @@ export interface DiscoveryResult {
 export interface RunDiscoveryOptions {
   /** Restrict to a subset of providers (defaults to every configured plugin). */
   providers?: DiscoveryProvider[];
-  /** Force append-to-repos.txt regardless of per-provider setting. */
-  appendToReposTxt?: boolean;
   /** Suppress the "new repos found" SMTP notification (useful for backup cycles). */
   notify?: boolean;
 }
@@ -139,7 +136,6 @@ export async function runDiscovery(opts: RunDiscoveryOptions = {}): Promise<Disc
       total: 0,
       newlyDiscovered: [],
       filteredOut: 0,
-      appendedToReposTxt: 0,
       authenticated: false,
     };
 
@@ -164,7 +160,8 @@ export async function runDiscovery(opts: RunDiscoveryOptions = {}): Promise<Disc
       providerResult.total = kept.length;
       providerResult.filteredOut = dropped + blacklistedCount;
 
-      const shouldAppend = opts.appendToReposTxt ?? providerCfg?.autoAppendToReposTxt ?? false;
+      const shouldCleanup = providerCfg?.autoCleanupReposTxt ?? true;
+      const coveredForCleanup: string[] = [];
 
       for (const repo of kept) {
         const isNew = isNewRepository(repo.url);
@@ -178,10 +175,30 @@ export async function runDiscovery(opts: RunDiscoveryOptions = {}): Promise<Disc
 
         if (isNew) {
           providerResult.newlyDiscovered.push(repo);
-          if (shouldAppend) {
-            const { added } = addRepoUrl(repo.url);
-            if (added) providerResult.appendedToReposTxt++;
+        }
+
+        if (shouldCleanup) {
+          coveredForCleanup.push(repo.url);
+        }
+      }
+
+      // Auto-cleanup: after this provider's successful discovery, remove any
+      // URLs from repos.txt that are now redundant because the DB covers
+      // them. Only triggered for URLs discovered in THIS run, so a partially
+      // failing provider never wipes pins that might be temporarily missing.
+      if (shouldCleanup && coveredForCleanup.length > 0) {
+        try {
+          const { removed } = cleanupReposFile(coveredForCleanup);
+          if (removed.length > 0) {
+            logger.info(
+              `[discovery] ${plugin.displayName}: cleaned up ${removed.length} redundant URL(s) from repos.txt`,
+            );
           }
+        } catch (err) {
+          logger.warn(
+            `[discovery] Failed to clean up repos.txt for ${plugin.displayName}:`,
+            err,
+          );
         }
       }
 

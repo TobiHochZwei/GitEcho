@@ -1,0 +1,293 @@
+---
+// Per-repository detail page.
+//
+// Shows the canonical DB row (URL, provider, last sync status) with
+// editable user notes and a "skip future backups" toggle. Below that:
+// the last 20 backup attempts for this repo, joined with their run.
+//
+// Note: the backup engine does NOT overwrite last_sync_status when a
+// repo is skipped — the status card here therefore keeps showing the
+// last real attempt, which is the desired behaviour.
+
+import Layout from '../../../layouts/Layout.astro';
+import Card from '../../../components/Card.astro';
+import {
+  getRepositoryWithHistory,
+  REPOSITORY_NOTES_MAX_LENGTH,
+  type RepositoryBackupHistoryEntry,
+  type Repository,
+} from '../../../lib/database.js';
+
+const { id: rawId } = Astro.params;
+const id = rawId ? Number.parseInt(rawId, 10) : NaN;
+
+let repo: Repository | null = null;
+let history: RepositoryBackupHistoryEntry[] = [];
+let loadError: string | null = null;
+
+if (!Number.isFinite(id) || id <= 0) {
+  loadError = `Invalid repository id: ${rawId}`;
+} else {
+  try {
+    const result = getRepositoryWithHistory(id);
+    if (!result) {
+      loadError = `Repository #${id} not found.`;
+    } else {
+      repo = result.repo;
+      history = result.history;
+    }
+  } catch (err) {
+    loadError = (err as Error).message;
+  }
+}
+
+function statusBadge(status: string | null): { cls: string; label: string } {
+  switch (status) {
+    case 'success':
+      return { cls: 'text-bg-success', label: 'success' };
+    case 'failed':
+      return { cls: 'text-bg-danger', label: 'failed' };
+    case 'unavailable':
+      return { cls: 'text-bg-warning', label: 'unavailable' };
+    case 'skipped':
+      return { cls: 'text-bg-secondary', label: 'skipped' };
+    case 'pending':
+      return { cls: 'text-bg-info', label: 'pending' };
+    case null:
+    case undefined:
+      return { cls: 'text-bg-secondary', label: 'never' };
+    default:
+      return { cls: 'text-bg-secondary', label: status ?? 'unknown' };
+  }
+}
+
+const pageTitle = repo ? `${repo.owner} / ${repo.name}` : 'Repository';
+const isSkipped = repo?.skip_backup === 1;
+---
+<Layout
+  title={`GitEcho — ${pageTitle}`}
+  active="settings"
+  settingsActive="repos"
+  pageTitle={pageTitle}
+  breadcrumbs={[
+    { label: 'Home', href: '/' },
+    { label: 'Settings', href: '/settings' },
+    { label: 'Repositories', href: '/settings/repos' },
+    { label: repo ? `#${repo.id}` : 'Detail' },
+  ]}
+>
+  {loadError && (
+    <div class="alert alert-danger">
+      <i class="bi bi-exclamation-triangle-fill me-2"></i>{loadError}
+    </div>
+  )}
+
+  {repo && (
+    <>
+      <Card title="Overview" icon="bi-info-circle">
+        <dl class="row mb-0 small">
+          <dt class="col-sm-3">Provider</dt>
+          <dd class="col-sm-9">
+            {repo.provider === 'github'
+              ? <span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub</span>
+              : repo.provider === 'azuredevops'
+                ? <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps</span>
+                : <span class="badge text-bg-secondary">{repo.provider}</span>}
+          </dd>
+
+          <dt class="col-sm-3">Owner / Project</dt>
+          <dd class="col-sm-9"><code>{repo.owner}</code></dd>
+
+          <dt class="col-sm-3">Name</dt>
+          <dd class="col-sm-9"><code>{repo.name}</code></dd>
+
+          <dt class="col-sm-3">URL</dt>
+          <dd class="col-sm-9">
+            <a href={repo.url} target="_blank" rel="noopener noreferrer">{repo.url}</a>
+          </dd>
+
+          <dt class="col-sm-3">Last sync status</dt>
+          <dd class="col-sm-9">
+            {(() => { const b = statusBadge(repo.last_sync_status); return <span class={`badge ${b.cls}`}>{b.label}</span>; })()}
+            {isSkipped && (
+              <span class="badge text-bg-secondary ms-2"><i class="bi bi-pause-circle me-1"></i>excluded from backup</span>
+            )}
+          </dd>
+
+          <dt class="col-sm-3">Last sync at</dt>
+          <dd class="col-sm-9">{repo.last_sync_at ?? '—'}</dd>
+
+          {repo.last_error && (
+            <>
+              <dt class="col-sm-3">Last error</dt>
+              <dd class="col-sm-9"><code class="text-danger small">{repo.last_error}</code></dd>
+            </>
+          )}
+
+          <dt class="col-sm-3">Checksum</dt>
+          <dd class="col-sm-9"><code class="small">{repo.checksum ?? '—'}</code></dd>
+
+          <dt class="col-sm-3">First seen</dt>
+          <dd class="col-sm-9">{repo.created_at}</dd>
+
+          <dt class="col-sm-3">Last updated</dt>
+          <dd class="col-sm-9">{repo.updated_at}</dd>
+        </dl>
+      </Card>
+
+      <Card title="Settings" icon="bi-gear">
+        <div class="form-check form-switch mb-3">
+          <input
+            class="form-check-input"
+            type="checkbox"
+            id="skip-backup-toggle"
+            data-repo-id={repo.id}
+            checked={isSkipped}
+          />
+          <label class="form-check-label" for="skip-backup-toggle">
+            <strong>Exclude from future backups</strong>
+            <div class="text-secondary small">
+              When on, the backup engine skips this repository entirely.
+              History, notes, and the last known status are preserved.
+              Re-enable at any time to resume.
+            </div>
+          </label>
+        </div>
+
+        <div class="mb-2">
+          <label for="notes-input" class="form-label mb-1">
+            <strong>Notes</strong>
+            <span class="text-secondary small ms-2">
+              Max {REPOSITORY_NOTES_MAX_LENGTH} characters. Saved automatically on blur.
+            </span>
+          </label>
+          <textarea
+            id="notes-input"
+            class="form-control"
+            rows="5"
+            maxlength={REPOSITORY_NOTES_MAX_LENGTH}
+            data-repo-id={repo.id}
+            placeholder="Free text — context, owner contact, why it's skipped, links to tickets..."
+          >{repo.notes ?? ''}</textarea>
+          <div class="d-flex justify-content-between align-items-center mt-1">
+            <small class="text-secondary">
+              <span id="notes-count">{(repo.notes ?? '').length}</span> / {REPOSITORY_NOTES_MAX_LENGTH}
+            </small>
+            <button type="button" id="notes-save-btn" class="btn btn-sm btn-primary">
+              <i class="bi bi-save me-1"></i>Save notes
+            </button>
+          </div>
+        </div>
+      </Card>
+
+      <Card title={`Backup history (last ${history.length})`} icon="bi-clock-history">
+        {history.length === 0 ? (
+          <p class="text-secondary mb-0">No backup attempts recorded for this repository yet.</p>
+        ) : (
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Run</th>
+                  <th>Status</th>
+                  <th>Started</th>
+                  <th>Completed</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((h) => {
+                  const b = statusBadge(h.status);
+                  return (
+                    <tr>
+                      <td><a href={`/runs/${h.run_id}`}>#{h.run_id}</a></td>
+                      <td><span class={`badge ${b.cls}`}>{b.label}</span></td>
+                      <td class="small text-secondary">{h.started_at ?? h.run_started_at}</td>
+                      <td class="small text-secondary">{h.completed_at ?? '—'}</td>
+                      <td class="small">
+                        {h.error
+                          ? <code class="text-danger">{h.error.length > 120 ? h.error.slice(0, 120) + '…' : h.error}</code>
+                          : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </>
+  )}
+</Layout>
+
+<script>
+  // Client-side handlers for the skip toggle and notes textarea.
+  // Both hit PATCH /api/repos/:id; success is signalled via the global
+  // toast helper (see scripts/toasts.ts).
+  const toastFn: (msg: string, variant?: string) => void =
+    (window as unknown as { showToast?: (m: string, v?: string) => void }).showToast
+      ?? ((m: string) => console.log(m));
+
+  const skipToggle = document.getElementById('skip-backup-toggle') as HTMLInputElement | null;
+  const notesInput = document.getElementById('notes-input') as HTMLTextAreaElement | null;
+  const notesCount = document.getElementById('notes-count');
+  const notesSaveBtn = document.getElementById('notes-save-btn') as HTMLButtonElement | null;
+
+  async function patchRepo(id: string, body: Record<string, unknown>): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/repos/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        toastFn(`Save failed: ${err.error ?? res.statusText}`, 'danger');
+        return false;
+      }
+      return true;
+    } catch (e) {
+      toastFn(`Save failed: ${(e as Error).message}`, 'danger');
+      return false;
+    }
+  }
+
+  if (skipToggle) {
+    skipToggle.addEventListener('change', async () => {
+      const id = skipToggle.dataset.repoId!;
+      skipToggle.disabled = true;
+      const ok = await patchRepo(id, { skipBackup: skipToggle.checked });
+      skipToggle.disabled = false;
+      if (ok) {
+        toastFn(
+          skipToggle.checked ? 'Repository excluded from future backups.' : 'Repository re-enabled.',
+          'success',
+        );
+      } else {
+        // Revert UI on failure.
+        skipToggle.checked = !skipToggle.checked;
+      }
+    });
+  }
+
+  if (notesInput && notesCount) {
+    notesInput.addEventListener('input', () => {
+      notesCount.textContent = String(notesInput.value.length);
+    });
+
+    let lastSaved = notesInput.value;
+    const saveNotes = async () => {
+      if (notesInput.value === lastSaved) return;
+      const id = notesInput.dataset.repoId!;
+      const ok = await patchRepo(id, { notes: notesInput.value });
+      if (ok) {
+        lastSaved = notesInput.value;
+        toastFn('Notes saved.', 'success');
+      }
+    };
+
+    notesInput.addEventListener('blur', saveNotes);
+    notesSaveBtn?.addEventListener('click', saveNotes);
+  }
+</script>

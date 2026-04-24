@@ -4,7 +4,7 @@
 This is a node.js application built with Astro.js and background tasks in node.js
 
 ## Purpose
-This app helps you back up the code on GitHub.com and Azure DevOps. It creates offline backups of selected repositories. Repository URLs are stored in a text file (`/config/repos.txt`), and all backup state — repositories, backup runs, sync times, and checksums — is stored in a local SQLite database (`/data/gitecho.db`).
+This app helps you back up the code on GitHub.com and Azure DevOps. It creates offline backups of selected repositories. The SQLite database (`/data/gitecho.db`) is the **source of truth** for every repository GitEcho knows about — it is populated automatically via provider auto-discovery (`gh repo list`, `az repos list`) and is merged with an optional *extras* list in `/config/repos.txt` for repos auto-discovery can't see (other orgs, read-only tokens, manual pins). All backup state — repositories, backup runs, sync times, notes, and checksums — lives in the database.
 
 ## App flow
 The app starts in red or green. The background is light red when there was no backup in the last 24h (read from the local SQLite database `gitecho.db` in `/data`). The background is green when there was a successful backup in the last 24h.
@@ -45,9 +45,11 @@ Option3 (mirror + ZIP snapshots):
 User can decide which mode via environment variable: option1, option2, or option3
 
 WebApp features
-- Dashboard (`/`) — overall status, total repos, last backup time, current mode, and the most recent backup runs. Background turns green/red based on whether a successful backup occurred in the last 24h.
+- Dashboard (`/`) — overall status, total repos, last backup time, current mode, cached storage usage, and the most recent backup runs. Background turns green/red based on whether a successful backup occurred in the last 24h. The storage figure is served from a persistent cache refreshed by the worker after every run, so the dashboard never blocks on a filesystem walk.
 - Repositories (`/repos`) — list of all known repos with provider, last sync time, last status, and a per-repo action (Browse for option1, ZIP archives for option2 and option3).
-- Backup runs (`/runs`) — chronological history of backup runs with totals, success/failure counts, and error summaries.
+- Repository settings (`/settings/repos`) — DB-first view of every repository GitEcho backs up, with a filter, source badge (`discovered` vs. `extra`), and a separate section for extras pinned in `repos.txt`. Redundant `repos.txt` entries that are already in the DB are cleaned up automatically each cycle (toggle under `/settings/providers`).
+- Repository detail (`/settings/repos/<id>`) — per-repo overview with status, last error, free-text **notes** (up to 4000 chars), a **“Exclude from future backups”** toggle that skips the repo without touching its last known status or history, and the last 20 backup attempts joined with their run.
+- Backup runs (`/runs`) — chronological history of backup runs with totals, success / failed / unavailable / **skipped** counts, and error summaries.
 - Browse (`/browse/<provider>/<owner>/<repo>/...`, option1 only) — read-only file/folder navigation of the cloned repo, with download as ZIP for files, folders, or the whole repo.
 - ZIP archives (`/zips/<provider>/<owner>/<repo>`, option2 and option3) — list of stored ZIP snapshots for a repo with size, date, and download link.
 - Logs (`/logs`) — live view of the structured JSONL log (`/data/gitecho.log`) with filtering by level (debug/info/warn/error), source (server/worker), and free-text search, plus a download button for the rotated log files.
@@ -298,8 +300,8 @@ a fallback if you prefer a fully declarative deployment.
 
 | Path | Purpose |
 |---|---|
-| `/data` | Local SQLite database (`gitecho.db`), structured log file (`gitecho.log` + rotated archives), and sync metadata |
-| `/config` | `repos.txt` — text file containing repository URLs to back up |
+| `/data` | Local SQLite database (`gitecho.db`), structured log file (`gitecho.log` + rotated archives), storage-usage cache (`storage-cache.json`, refreshed by the worker after every run), and sync metadata |
+| `/config` | `repos.txt` — extras pinned manually for repos auto-discovery can't see; `settings.json` — non-secret settings; `secrets.json` — AES-256-GCM-encrypted PATs and SMTP password |
 | `/backups` | Cloned repositories (option1), ZIP archives (option2), or bare mirror + ZIP snapshots (option3) |
 
 ### Upgrading
@@ -363,18 +365,27 @@ https://dev.azure.com/myorg/MyProject/_git/my-repo
 > `az devops project list` + `az repos list`. Discovery can be disabled per
 > provider via the `Auto-discover` checkbox on `/settings/providers`.
 >
-> **Filters & auto-add:** on `/settings/providers` you can additionally:
+> **Filters & discovery hygiene:** on `/settings/providers` you can additionally:
 > - Restrict discovery by **owner/org allow-list** and **deny-list**
 >   (case-insensitive, comma-separated; for Azure DevOps either the org or
 >   the project segment matches).
 > - Restrict by **visibility** (`All` / `Public only` / `Private only`).
-> - Optionally **append newly-discovered URLs to `/config/repos.txt`** so
->   the file stays in sync with what's being backed up.
+> - **Blacklist** repos per provider so auto-discovery never picks them up
+>   again on the next cycle.
+> - **Auto-clean `/config/repos.txt`** (default on) — every cycle,
+>   entries that are already picked up by auto-discovery (and therefore
+>   live in the DB) are removed from the file so it only ever contains
+>   genuine extras.
 > - Optionally **send an email** when previously-unseen repos are
 >   discovered (requires SMTP).
 >
+> To stop backing up an individual repo without removing it, open
+> `/settings/repos/<id>` and toggle **Exclude from future backups** — the
+> repo stays in the DB (with its history, notes, and last known status)
+> but the engine skips it on every cycle until you turn it back on.
+>
 > Newly-discovered repos are always persisted in the local SQLite database
-> and appear in the `/repos` UI.
+> and appear on `/settings/repos`.
 
 > **Note:** The container is designed to be immutable — all persistent state lives in the mount points. You can safely recreate the container without losing data.
 

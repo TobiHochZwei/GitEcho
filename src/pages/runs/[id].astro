@@ -28,6 +28,7 @@ function statusVariant(s: string): string {
     case 'partial': return 'warning';
     case 'partial_failure': return 'warning';
     case 'unavailable': return 'warning';
+    case 'skipped': return 'secondary';
     default: return 'secondary';
   }
 }
@@ -70,6 +71,7 @@ function duration(start: string | null, end: string | null): string {
             <div><div class="text-secondary">Success</div><div class="fw-semibold text-success">{run.repos_success}</div></div>
             <div><div class="text-secondary">Failed</div><div class="fw-semibold text-danger">{run.repos_failed}</div></div>
             <div><div class="text-secondary">Unavailable</div><div class="fw-semibold text-warning">{run.repos_unavailable ?? 0}</div></div>
+            <div><div class="text-secondary">Skipped</div><div class="fw-semibold text-secondary">{run.repos_skipped ?? 0}</div></div>
           </div>
         </div>
         {run.error_summary && (
@@ -99,7 +101,7 @@ function duration(start: string | null, end: string | null): string {
                   <tr>
                     <td>
                       {it.repo
-                        ? <span><span class="text-secondary">{it.repo.provider}/</span><strong>{it.repo.owner}/{it.repo.name}</strong></span>
+                        ? <a href={`/settings/repos/${it.repo.id}`} class="text-decoration-none"><span class="text-secondary">{it.repo.provider}/</span><strong>{it.repo.owner}/{it.repo.name}</strong></a>
                         : <code>#{it.repository_id}</code>}
                     </td>
                     <td><span class={`badge text-bg-${statusVariant(it.status)}`}>{it.status}</span></td>

@@ -4,7 +4,6 @@ import type { DiscoveryProvider } from '../../../../lib/discovery.js';
 
 interface DiscoverInput {
   provider?: 'github' | 'azureDevOps' | 'all';
-  appendToReposTxt?: boolean;
 }
 
 export const POST: APIRoute = async ({ request }) => {
@@ -19,10 +18,7 @@ export const POST: APIRoute = async ({ request }) => {
     body.provider && body.provider !== 'all' ? [body.provider] : undefined;
 
   try {
-    const result = await runDiscovery({
-      providers,
-      ...(body.appendToReposTxt !== undefined ? { appendToReposTxt: body.appendToReposTxt } : {}),
-    });
+    const result = await runDiscovery({ providers });
 
     const summary = result.providers.map((p) => ({
       provider: p.provider,
@@ -30,7 +26,6 @@ export const POST: APIRoute = async ({ request }) => {
       total: p.total,
       newlyDiscovered: p.newlyDiscovered.length,
       filteredOut: p.filteredOut,
-      appendedToReposTxt: p.appendedToReposTxt,
     }));
 
     return new Response(JSON.stringify({ ok: true, providers: summary }), {

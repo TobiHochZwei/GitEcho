@@ -6,8 +6,22 @@
 import { defineMiddleware } from 'astro:middleware';
 import { timingSafeEqual } from 'node:crypto';
 import { logger } from './lib/logger.js';
+import { loadConfig } from './lib/config.js';
+import { initDatabase } from './lib/database.js';
 
 let warnedOpen = false;
+let dbInitialized = false;
+
+function ensureDatabaseInitialized(): void {
+  if (dbInitialized) return;
+  try {
+    const cfg = loadConfig();
+    initDatabase(cfg.dataDir);
+    dbInitialized = true;
+  } catch (e) {
+    logger.error(`[middleware] Failed to initialize database: ${(e as Error).message}`);
+  }
+}
 
 function constantTimeEqual(a: string, b: string): boolean {
   const aBuf = Buffer.from(a);
@@ -60,6 +74,8 @@ function isOriginAllowed(origin: string | null, requestUrl: string): boolean {
 }
 
 export const onRequest = defineMiddleware(async (context, next) => {
+  ensureDatabaseInitialized();
+
   const expectedUser = process.env.UI_USER;
   const expectedPass = process.env.UI_PASS;
 

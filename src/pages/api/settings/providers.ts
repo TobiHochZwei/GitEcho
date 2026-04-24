@@ -10,7 +10,7 @@ interface ProviderInputCommon {
   pat?: string;
   patExpires?: string;
   autoDiscover?: boolean;
-  autoAppendToReposTxt?: boolean;
+  autoCleanupReposTxt?: boolean;
   notifyOnNewRepo?: boolean;
   filters?: DiscoveryFilterSettings;
   clear?: boolean;
@@ -58,7 +58,7 @@ export const PUT: APIRoute = async ({ request }) => {
     github?: {
       patExpires?: string;
       autoDiscover?: boolean;
-      autoAppendToReposTxt?: boolean;
+      autoCleanupReposTxt?: boolean;
       notifyOnNewRepo?: boolean;
       filters?: DiscoveryFilterSettings;
     };
@@ -66,7 +66,7 @@ export const PUT: APIRoute = async ({ request }) => {
       patExpires?: string;
       autoDiscover?: boolean;
       org?: string;
-      autoAppendToReposTxt?: boolean;
+      autoCleanupReposTxt?: boolean;
       notifyOnNewRepo?: boolean;
       filters?: DiscoveryFilterSettings;
     };
@@ -80,8 +80,8 @@ export const PUT: APIRoute = async ({ request }) => {
       settingsPatch.github.patExpires = body.github.patExpires || undefined;
     if (body.github.autoDiscover !== undefined)
       settingsPatch.github.autoDiscover = Boolean(body.github.autoDiscover);
-    if (body.github.autoAppendToReposTxt !== undefined)
-      settingsPatch.github.autoAppendToReposTxt = Boolean(body.github.autoAppendToReposTxt);
+    if (body.github.autoCleanupReposTxt !== undefined)
+      settingsPatch.github.autoCleanupReposTxt = Boolean(body.github.autoCleanupReposTxt);
     if (body.github.notifyOnNewRepo !== undefined)
       settingsPatch.github.notifyOnNewRepo = Boolean(body.github.notifyOnNewRepo);
     if (body.github.filters !== undefined)
@@ -109,9 +109,9 @@ export const PUT: APIRoute = async ({ request }) => {
       settingsPatch.azureDevOps.org = body.azureDevOps.org || undefined;
     if (body.azureDevOps.autoDiscover !== undefined)
       settingsPatch.azureDevOps.autoDiscover = Boolean(body.azureDevOps.autoDiscover);
-    if (body.azureDevOps.autoAppendToReposTxt !== undefined)
-      settingsPatch.azureDevOps.autoAppendToReposTxt = Boolean(
-        body.azureDevOps.autoAppendToReposTxt,
+    if (body.azureDevOps.autoCleanupReposTxt !== undefined)
+      settingsPatch.azureDevOps.autoCleanupReposTxt = Boolean(
+        body.azureDevOps.autoCleanupReposTxt,
       );
     if (body.azureDevOps.notifyOnNewRepo !== undefined)
       settingsPatch.azureDevOps.notifyOnNewRepo = Boolean(body.azureDevOps.notifyOnNewRepo);

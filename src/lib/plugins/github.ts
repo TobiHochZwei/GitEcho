@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { logger, redactSecrets } from '../logger.js';
 
 import { getConfig } from '../config.js';
-import { rethrowAsUnavailableIfMatch } from './errors.js';
+import { classifyGitError, rethrowAsUnavailableIfMatch } from './errors.js';
 import type { ProviderPlugin, RepositoryInfo } from './interface.js';
 
 const execFileAsync = promisify(execFile);
@@ -22,6 +22,58 @@ function nonInteractiveGitEnv(): NodeJS.ProcessEnv {
     SSH_ASKPASS: '',
     GCM_INTERACTIVE: 'Never',
   };
+}
+
+/**
+ * Extra `-c` flags prepended to every git invocation to work around two
+ * common failure modes when cloning large repos:
+ *   - HTTP/2 stream cancellations ("curl 92 … CANCEL", "early EOF") → force
+ *     HTTP/1.1, which is dramatically more tolerant of proxies/firewalls.
+ *   - Large pack files exceeding the default POST buffer → bump to 500 MB.
+ */
+const GIT_TRANSPORT_FLAGS: string[] = [
+  '-c',
+  'http.version=HTTP/1.1',
+  '-c',
+  'http.postBuffer=524288000',
+];
+
+/** Prepend the transport-hardening `-c` flags to a git argv. */
+function gitArgs(...args: string[]): string[] {
+  return [...GIT_TRANSPORT_FLAGS, ...args];
+}
+
+/**
+ * Retry an async operation a few times with linear backoff. Intended for
+ * `git clone` only — `fetch`/`pull` are already retried implicitly by the
+ * next scheduled backup cycle.
+ */
+async function retry<T>(
+  fn: () => Promise<T>,
+  {
+    attempts = 3,
+    backoffMs = 2000,
+    shouldRetry = () => true,
+    onRetry,
+  }: {
+    attempts?: number;
+    backoffMs?: number;
+    shouldRetry?: (err: unknown) => boolean;
+    onRetry?: (err: unknown, attempt: number) => void | Promise<void>;
+  } = {},
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === attempts || !shouldRetry(err)) throw err;
+      if (onRetry) await onRetry(err, attempt);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs * attempt));
+    }
+  }
+  throw lastErr;
 }
 
 async function execCommand(
@@ -96,7 +148,27 @@ export class GitHubPlugin implements ProviderPlugin {
   async cloneRepository(repoUrl: string, targetDir: string): Promise<void> {
     const url = this.getAuthenticatedUrl(repoUrl);
     try {
-      await execCommand('git', ['clone', url, targetDir], { env: nonInteractiveGitEnv() });
+      await retry(
+        () =>
+          execCommand('git', gitArgs('clone', url, targetDir), { env: nonInteractiveGitEnv() }),
+        {
+          shouldRetry: (err) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            return !classifyGitError(msg);
+          },
+          onRetry: async (err, attempt) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            logger.warn(
+              `[github] Clone attempt ${attempt} failed for "${repoUrl}", retrying: ${redactSecrets(msg)}`,
+            );
+            try {
+              await rm(targetDir, { recursive: true, force: true });
+            } catch {
+              // Best-effort — next attempt will surface any real problem.
+            }
+          },
+        },
+      );
     } catch (error) {
       rethrowAsUnavailableIfMatch(error, repoUrl);
     }
@@ -109,19 +181,101 @@ export class GitHubPlugin implements ProviderPlugin {
     await this.healRemoteUrl(repoDir);
 
     try {
-      await execCommand('git', ['-C', repoDir, 'fetch', '--all'], {
+      // `--prune` ensures deleted upstream branches disappear from
+      // refs/remotes/origin/* so `set-head --auto` below can resolve the
+      // current default branch correctly.
+      await execCommand('git', gitArgs('-C', repoDir, 'fetch', '--all', '--prune'), {
         env: nonInteractiveGitEnv(),
       });
     } catch (error) {
       rethrowAsUnavailableIfMatch(error, repoDir);
     }
+
+    await this.fastForwardToRemoteDefault(repoDir);
+  }
+
+  /**
+   * Fast-forward the working copy to the remote's current state, tolerating
+   * upstream branch renames/deletions (e.g. "master" → "main"):
+   *   1. Refresh origin/HEAD so we know the current remote default.
+   *   2. If the local branch still exists on the remote → ff-only merge.
+   *   3. Otherwise → switch the local checkout to the new remote default.
+   *   4. On genuine divergence → warn and return (never force).
+   */
+  private async fastForwardToRemoteDefault(repoDir: string): Promise<void> {
+    let remoteDefault: string | undefined;
     try {
-      await execCommand('git', ['-C', repoDir, 'pull', '--ff-only'], {
+      await execCommand('git', gitArgs('-C', repoDir, 'remote', 'set-head', 'origin', '--auto'), {
         env: nonInteractiveGitEnv(),
       });
+      const ref = await execCommand(
+        'git',
+        gitArgs('-C', repoDir, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'),
+        { env: nonInteractiveGitEnv() },
+      );
+      remoteDefault = ref.replace(/^origin\//, '');
     } catch (error) {
       logger.warn(
-        `[github] pull --ff-only failed for ${repoDir}, history may have diverged: ${(error as Error).message}`,
+        `[github] Could not determine remote default branch for "${repoDir}": ${(error as Error).message}`,
+      );
+      return;
+    }
+
+    let currentLocal: string | undefined;
+    try {
+      currentLocal = await execCommand(
+        'git',
+        gitArgs('-C', repoDir, 'rev-parse', '--abbrev-ref', 'HEAD'),
+        { env: nonInteractiveGitEnv() },
+      );
+    } catch {
+      currentLocal = undefined;
+    }
+
+    const currentTrackedOnRemote =
+      !!currentLocal &&
+      (await execFileAsync(
+        'git',
+        ['-C', repoDir, 'rev-parse', '--verify', `refs/remotes/origin/${currentLocal}`],
+        { env: nonInteractiveGitEnv() },
+      )
+        .then(() => true)
+        .catch(() => false));
+
+    if (currentTrackedOnRemote && currentLocal) {
+      try {
+        await execCommand(
+          'git',
+          gitArgs('-C', repoDir, 'merge', '--ff-only', `origin/${currentLocal}`),
+          { env: nonInteractiveGitEnv() },
+        );
+      } catch (error) {
+        logger.warn(
+          `[github] pull --ff-only failed for ${repoDir}, history may have diverged: ${(error as Error).message}`,
+        );
+      }
+      return;
+    }
+
+    if (!remoteDefault) {
+      logger.warn(
+        `[github] Local branch "${currentLocal}" is gone upstream and no remote default could be resolved for "${repoDir}"`,
+      );
+      return;
+    }
+
+    try {
+      await execCommand(
+        'git',
+        gitArgs('-C', repoDir, 'checkout', '-B', remoteDefault, `origin/${remoteDefault}`),
+        { env: nonInteractiveGitEnv() },
+      );
+      logger.info(
+        `[github] Remote default branch changed ${currentLocal ?? '?'} → ${remoteDefault} for "${repoDir}", switched local checkout`,
+      );
+    } catch (error) {
+      logger.warn(
+        `[github] Failed to switch "${repoDir}" to new default branch "${remoteDefault}": ${(error as Error).message}`,
       );
     }
   }

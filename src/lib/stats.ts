@@ -1,14 +1,35 @@
-// Higher-level stat helpers used by the dashboard. Caches expensive
-// filesystem walks (storage usage) for a short TTL.
-import { existsSync, readdirSync, statSync } from 'node:fs';
+// Higher-level stat helpers used by the dashboard. The storage-usage
+// FS walk is expensive on large mirrors (many objects in .git), so we
+// keep the result both in memory AND in a small JSON file next to the
+// SQLite DB. That way:
+//   * the dashboard SSR path never has to walk the FS (uses cache),
+//   * the cache survives process restarts,
+//   * the worker refreshes the cache after every backup run so it's
+//     usually seconds-fresh when the user opens the dashboard.
+import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
+import { getConfig } from './config.js';
 import { getDatabase, type BackupRun } from './database.js';
 
-const STORAGE_TTL_MS = 5 * 60 * 1000;
+// In-memory TTL used only inside the *same* process. The persistent
+// cache file is checked first and, since the worker keeps it fresh,
+// this rarely matters.
+const STORAGE_MEM_TTL_MS = 60 * 1000;
 
-let storageCache: { value: StorageUsage; computedAt: number } | null = null;
+/** Current on-disk cache format version. Bump on shape changes. */
+const STORAGE_CACHE_VERSION = 1;
+
+let storageMemCache: { value: StorageUsage; at: number } | null = null;
 
 export interface StorageUsage {
+  totalBytes: number;
+  byProvider: Record<string, number>;
+  /** ISO timestamp. Empty string when no walk has ever run. */
+  computedAt: string;
+}
+
+interface StorageCacheFile {
+  v: number;
   totalBytes: number;
   byProvider: Record<string, number>;
   computedAt: string;
@@ -34,66 +55,158 @@ export interface ExtendedStats {
   unavailableCount: number;
 }
 
+/** Path of the persistent cache file inside `dataDir`. */
+function storageCachePath(): string {
+  return join(getConfig().dataDir, 'storage-cache.json');
+}
+
+function readStorageCacheFile(): StorageUsage | null {
+  try {
+    const raw = readFileSync(storageCachePath(), 'utf-8');
+    const parsed = JSON.parse(raw) as Partial<StorageCacheFile>;
+    if (parsed.v !== STORAGE_CACHE_VERSION) return null;
+    if (typeof parsed.totalBytes !== 'number') return null;
+    return {
+      totalBytes: parsed.totalBytes,
+      byProvider: parsed.byProvider ?? {},
+      computedAt: parsed.computedAt ?? '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeStorageCacheFile(value: StorageUsage): void {
+  const payload: StorageCacheFile = {
+    v: STORAGE_CACHE_VERSION,
+    totalBytes: value.totalBytes,
+    byProvider: value.byProvider,
+    computedAt: value.computedAt,
+  };
+  const path = storageCachePath();
+  const tmp = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(payload), 'utf-8');
+    renameSync(tmp, path);
+  } catch {
+    // Cache write failure is non-fatal — we just lose the persistent
+    // cache for this round and will re-walk next time.
+  }
+}
+
+/**
+ * Recursively sum file sizes under `dir`. Uses `withFileTypes` so we
+ * avoid an extra `statSync` per entry, which is the slow part on
+ * Windows bind mounts and large `.git/objects` trees.
+ */
 function dirSize(dir: string): number {
   let total = 0;
-  let entries: string[];
+  let entries: Dirent[];
   try {
-    entries = readdirSync(dir);
+    entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     return 0;
   }
-  for (const name of entries) {
-    const full = join(dir, name);
-    let st;
-    try {
-      st = statSync(full);
-    } catch {
-      continue;
-    }
-    if (st.isDirectory()) {
+  for (const ent of entries) {
+    const full = join(dir, ent.name);
+    if (ent.isDirectory()) {
       total += dirSize(full);
-    } else if (st.isFile()) {
-      total += st.size;
+    } else if (ent.isFile()) {
+      try {
+        total += statSync(full).size;
+      } catch {
+        // ignore racing deletions
+      }
     }
   }
   return total;
 }
 
-export function getStorageUsage(backupsDir: string, force = false): StorageUsage {
-  const now = Date.now();
-  if (!force && storageCache && now - storageCache.computedAt < STORAGE_TTL_MS) {
-    return storageCache.value;
-  }
+function walkStorage(backupsDir: string): StorageUsage {
   const byProvider: Record<string, number> = {};
   let total = 0;
   if (existsSync(backupsDir)) {
-    let providers: string[] = [];
+    let providers: Dirent[] = [];
     try {
-      providers = readdirSync(backupsDir);
+      providers = readdirSync(backupsDir, { withFileTypes: true });
     } catch {
       providers = [];
     }
-    for (const p of providers) {
-      const full = join(backupsDir, p);
-      let st;
-      try {
-        st = statSync(full);
-      } catch {
-        continue;
-      }
-      if (!st.isDirectory()) continue;
-      const size = dirSize(full);
-      byProvider[p] = size;
+    for (const ent of providers) {
+      if (!ent.isDirectory()) continue;
+      const size = dirSize(join(backupsDir, ent.name));
+      byProvider[ent.name] = size;
       total += size;
     }
   }
-  const value: StorageUsage = {
+  return {
     totalBytes: total,
     byProvider,
     computedAt: new Date().toISOString(),
   };
-  storageCache = { value, computedAt: now };
+}
+
+export interface GetStorageUsageOptions {
+  /** Force a full walk, ignoring both in-memory and on-disk cache. */
+  force?: boolean;
+  /**
+   * Maximum cache age accepted. Defaults to `Infinity` so the dashboard
+   * SSR path never blocks on a walk — the worker refreshes the cache
+   * after every backup run, and users can press "Recompute" to force.
+   */
+  maxAgeMs?: number;
+}
+
+/**
+ * Return the current storage usage. By default returns the cached
+ * value without ever walking the filesystem — the worker refreshes the
+ * cache after each backup run. Pass `{ force: true }` for an explicit
+ * recompute (wired to the Recompute button) or a finite `maxAgeMs` if
+ * you want automatic refresh after some age.
+ */
+export function getStorageUsage(
+  backupsDir: string,
+  options: GetStorageUsageOptions | boolean = {},
+): StorageUsage {
+  // Preserve backward compatibility: getStorageUsage(dir, true) === force.
+  const opts: GetStorageUsageOptions =
+    typeof options === 'boolean' ? { force: options } : options;
+  const force = opts.force === true;
+  const maxAgeMs = opts.maxAgeMs ?? Number.POSITIVE_INFINITY;
+  const now = Date.now();
+
+  if (!force) {
+    // In-memory cache (same process only).
+    if (storageMemCache && now - storageMemCache.at < STORAGE_MEM_TTL_MS) {
+      const ageMs = computedAtAgeMs(storageMemCache.value.computedAt, now);
+      if (ageMs <= maxAgeMs) return storageMemCache.value;
+    }
+    // Persistent cache (shared across processes / restarts).
+    const onDisk = readStorageCacheFile();
+    if (onDisk) {
+      const ageMs = computedAtAgeMs(onDisk.computedAt, now);
+      if (ageMs <= maxAgeMs) {
+        storageMemCache = { value: onDisk, at: now };
+        return onDisk;
+      }
+    } else if (maxAgeMs === Number.POSITIVE_INFINITY) {
+      // No cache yet and caller explicitly does not want to block the
+      // request: return a zero placeholder instead of walking.
+      return { totalBytes: 0, byProvider: {}, computedAt: '' };
+    }
+  }
+
+  const value = walkStorage(backupsDir);
+  storageMemCache = { value, at: now };
+  writeStorageCacheFile(value);
   return value;
+}
+
+function computedAtAgeMs(computedAt: string, now: number): number {
+  if (!computedAt) return Number.POSITIVE_INFINITY;
+  const t = Date.parse(computedAt);
+  if (!Number.isFinite(t)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, now - t);
 }
 
 export function getRunHistory(limit = 30): RunHistoryPoint[] {

@@ -25,6 +25,8 @@ export interface Repository {
   last_sync_status: string | null;
   last_error: string | null;
   checksum: string | null;
+  notes: string | null;
+  skip_backup: number;
   created_at: string;
   updated_at: string;
 }
@@ -38,6 +40,7 @@ export interface BackupRun {
   repos_success: number;
   repos_failed: number;
   repos_unavailable: number;
+  repos_skipped: number;
   error_summary: string | null;
   backup_mode: string;
 }
@@ -79,6 +82,8 @@ const SCHEMA = `
     last_sync_status TEXT,
     last_error TEXT,
     checksum TEXT,
+    notes TEXT,
+    skip_backup INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -92,6 +97,7 @@ const SCHEMA = `
     repos_success INTEGER DEFAULT 0,
     repos_failed INTEGER DEFAULT 0,
     repos_unavailable INTEGER DEFAULT 0,
+    repos_skipped INTEGER DEFAULT 0,
     error_summary TEXT,
     backup_mode TEXT NOT NULL
   );
@@ -144,6 +150,14 @@ export function initDatabase(dataDir: string): DatabaseInstance {
   // These remain in place to self-heal installs that existed before the
   // versioned migration runner was introduced.
   migrateAddColumnIfMissing(instance, 'backup_runs', 'repos_unavailable', 'INTEGER DEFAULT 0');
+  migrateAddColumnIfMissing(instance, 'backup_runs', 'repos_skipped', 'INTEGER DEFAULT 0');
+  migrateAddColumnIfMissing(instance, 'repositories', 'notes', 'TEXT');
+  migrateAddColumnIfMissing(
+    instance,
+    'repositories',
+    'skip_backup',
+    'INTEGER NOT NULL DEFAULT 0',
+  );
 
   runMigrations(instance);
 
@@ -299,6 +313,104 @@ export function updateRepositorySync(
     .run({ id, status, error: error ?? null, checksum: checksum ?? null });
 }
 
+/**
+ * Persist freeform user notes for a repository. Notes are capped at 4000
+ * characters server-side and stored as NULL when empty/whitespace-only.
+ * Returns true when a row was updated.
+ */
+export const REPOSITORY_NOTES_MAX_LENGTH = 4000;
+
+export function updateRepositoryNotes(id: number, notes: string | null): boolean {
+  const database = getDatabase();
+  let value: string | null = null;
+  if (notes !== null && notes !== undefined) {
+    const trimmed = notes.trim();
+    if (trimmed.length > 0) {
+      value =
+        trimmed.length > REPOSITORY_NOTES_MAX_LENGTH
+          ? trimmed.slice(0, REPOSITORY_NOTES_MAX_LENGTH)
+          : trimmed;
+    }
+  }
+  const result = database
+    .prepare(
+      `UPDATE repositories
+          SET notes = @notes,
+              updated_at = datetime('now')
+        WHERE id = @id`,
+    )
+    .run({ id, notes: value });
+  return result.changes > 0;
+}
+
+/**
+ * Toggle the "exclude from future backups" flag. The repository stays in
+ * the DB (so notes and history remain visible) but the backup engine skips
+ * it entirely while the flag is set.
+ */
+export function setRepositorySkipBackup(id: number, skip: boolean): boolean {
+  const database = getDatabase();
+  const result = database
+    .prepare(
+      `UPDATE repositories
+          SET skip_backup = @skip,
+              updated_at = datetime('now')
+        WHERE id = @id`,
+    )
+    .run({ id, skip: skip ? 1 : 0 });
+  return result.changes > 0;
+}
+
+export interface RepositoryBackupHistoryEntry {
+  item_id: number;
+  run_id: number;
+  status: string;
+  error: string | null;
+  checksum: string | null;
+  zip_path: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  run_started_at: string;
+  run_status: string;
+}
+
+/**
+ * Fetch a repository plus the most recent backup attempts for it, joined
+ * with the owning run. Newest first.
+ */
+export function getRepositoryWithHistory(
+  id: number,
+  historyLimit = 20,
+): { repo: Repository; history: RepositoryBackupHistoryEntry[] } | undefined {
+  const database = getDatabase();
+  const repo = database
+    .prepare('SELECT * FROM repositories WHERE id = ?')
+    .get(id) as Repository | undefined;
+  if (!repo) return undefined;
+
+  const history = database
+    .prepare(
+      `SELECT bi.id           AS item_id,
+              bi.run_id        AS run_id,
+              bi.status        AS status,
+              bi.error         AS error,
+              bi.checksum      AS checksum,
+              bi.zip_path      AS zip_path,
+              bi.started_at    AS started_at,
+              bi.completed_at  AS completed_at,
+              br.started_at    AS run_started_at,
+              br.status        AS run_status
+         FROM backup_items bi
+         JOIN backup_runs br ON br.id = bi.run_id
+        WHERE bi.repository_id = ?
+        ORDER BY bi.id DESC
+        LIMIT ?`,
+    )
+    .all(id, historyLimit) as RepositoryBackupHistoryEntry[];
+
+  return { repo, history };
+}
+
 // ─── Backup runs ─────────────────────────────────────────────────────
 
 export function createBackupRun(mode: string): BackupRun {
@@ -345,6 +457,10 @@ export function updateBackupRun(id: number, updates: Partial<BackupRun>): void {
   if (updates.repos_unavailable !== undefined) {
     fields.push('repos_unavailable = @repos_unavailable');
     values.repos_unavailable = updates.repos_unavailable;
+  }
+  if (updates.repos_skipped !== undefined) {
+    fields.push('repos_skipped = @repos_skipped');
+    values.repos_skipped = updates.repos_skipped;
   }
   if (updates.error_summary !== undefined) {
     fields.push('error_summary = @error_summary');

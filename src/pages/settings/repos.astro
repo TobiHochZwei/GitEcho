@@ -3,6 +3,7 @@ import Layout from '../../layouts/Layout.astro';
 import Card from '../../components/Card.astro';
 import { listRepoUrls } from '../../lib/repos-file.js';
 import { loadSettings } from '../../lib/settings.js';
+import { getRepositories } from '../../lib/database.js';
 
 let repos: { url: string; provider?: string }[] = [];
 let loadError: string | null = null;
@@ -16,43 +17,216 @@ const settings = loadSettings();
 const githubExcluded = settings.github?.excludedUrls ?? [];
 const adoExcluded = settings.azureDevOps?.excludedUrls ?? [];
 const hasExclusions = githubExcluded.length + adoExcluded.length > 0;
+
+// Discovered repos (from the SQLite database). These are the repos GitEcho
+// actually knows about: union of repos.txt + API auto-discovery results.
+let discoveredRepos: Array<{
+  id: number;
+  url: string;
+  provider: string;
+  owner: string;
+  name: string;
+  last_sync_at: string | null;
+  last_sync_status: string | null;
+  skip_backup: number;
+  notes: string | null;
+}> = [];
+let discoveredError: string | null = null;
+try {
+  discoveredRepos = getRepositories().map((r) => ({
+    id: r.id,
+    url: r.url,
+    provider: r.provider,
+    owner: r.owner,
+    name: r.name,
+    last_sync_at: r.last_sync_at,
+    last_sync_status: r.last_sync_status,
+    skip_backup: r.skip_backup,
+    notes: r.notes,
+  }));
+} catch (err) {
+  discoveredError = (err as Error).message;
+}
+
+// Build a quick lookup so we can mark rows that are ALSO pinned in repos.txt.
+const pinnedUrlSet = new Set(
+  repos.map((r) => r.url.replace(/\.git$/, '').toLowerCase()),
+);
+
+const discoveredByProvider = {
+  github: discoveredRepos.filter((r) => r.provider === 'github'),
+  azuredevops: discoveredRepos.filter((r) => r.provider === 'azuredevops'),
+  other: discoveredRepos.filter(
+    (r) => r.provider !== 'github' && r.provider !== 'azuredevops',
+  ),
+};
+
+function statusBadge(status: string | null): { cls: string; label: string } {
+  switch (status) {
+    case 'success':
+      return { cls: 'text-bg-success', label: 'success' };
+    case 'failed':
+      return { cls: 'text-bg-danger', label: 'failed' };
+    case 'unavailable':
+      return { cls: 'text-bg-warning', label: 'unavailable' };
+    case null:
+    case undefined:
+      return { cls: 'text-bg-secondary', label: 'never' };
+    default:
+      return { cls: 'text-bg-secondary', label: status ?? 'unknown' };
+  }
+}
 ---
 <Layout
   title="GitEcho — Settings · Repositories"
   active="settings"
   settingsActive="repos"
-  pageTitle="Repositories list"
+  pageTitle="Repositories"
   breadcrumbs={[
     { label: 'Home', href: '/' },
     { label: 'Settings', href: '/settings' },
-    { label: 'Repositories list' },
+    { label: 'Repositories' },
   ]}
 >
-  <p class="text-secondary small">
-    These URLs are stored in <code>/config/repos.txt</code>. Supported:
-    <code>https://github.com/&lt;owner&gt;/&lt;repo&gt;</code> and
-    <code>https://dev.azure.com/&lt;org&gt;/&lt;project&gt;/_git/&lt;repo&gt;</code>.
-  </p>
+  <div class="alert alert-info d-flex gap-3" role="alert">
+    <i class="bi bi-info-circle-fill fs-4"></i>
+    <div class="small">
+      <strong>The database is the source of truth.</strong>
+      Every repository GitEcho backs up lives in the SQLite database
+      (<code>/data/gitecho.db</code>). It is populated each cycle by
+      auto-discovery (<code>gh repo list</code>, <code>az repos list</code>)
+      and, optionally, by <em>extras</em> you pin in
+      <code>/config/repos.txt</code>.
+      <br />
+      Use <code>repos.txt</code> only for repos auto-discovery can't see —
+      other orgs, read-only tokens, or when a PAT doesn't list them. Redundant
+      pins are cleaned up automatically.
+      <br />
+      To stop backing up a discovered repo, remove it and tick
+      <em>Also exclude from auto-discovery</em> — it then lands on the
+      <strong>blacklist</strong> below and won't be picked up again on the
+      next cycle.
+    </div>
+  </div>
 
-  {loadError && <div class="alert alert-warning"><i class="bi bi-exclamation-triangle-fill me-2"></i>{loadError}</div>}
-
-  <Card title="Add a repository" icon="bi-plus-circle">
-    <form id="add-form" class="row g-2">
-      <div class="col-12 col-md">
-        <input type="url" name="url" placeholder="https://github.com/owner/repo" required class="form-control" />
-      </div>
-      <div class="col-12 col-md-auto">
-        <button type="submit" class="btn btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Add</button>
-      </div>
-    </form>
+  <Card title={`Backed-up repositories (${discoveredRepos.length})`} icon="bi-database">
+    <p class="text-secondary small mb-3">
+      Everything GitEcho knows about, as stored in the database. Extras from
+      <code>repos.txt</code> are marked
+      <span class="badge text-bg-info"><i class="bi bi-pin-angle me-1"></i>extra</span>.
+      The status shown is the result of the most recent backup attempt.
+    </p>
+    {discoveredError && <div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle-fill me-2"></i>{discoveredError}</div>}
+    {discoveredRepos.length === 0 ? (
+      <p class="text-secondary mb-0">
+        The database is empty — run a backup cycle or open the dashboard to
+        trigger discovery.
+      </p>
+    ) : (
+      <>
+        <div class="d-flex gap-3 mb-3 flex-wrap">
+          <span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub: {discoveredByProvider.github.length}</span>
+          <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps: {discoveredByProvider.azuredevops.length}</span>
+          {discoveredByProvider.other.length > 0 && (
+            <span class="badge text-bg-secondary">Other: {discoveredByProvider.other.length}</span>
+          )}
+        </div>
+        <div class="mb-2">
+          <input
+            type="search"
+            id="discovered-filter"
+            class="form-control form-control-sm"
+            placeholder="Filter by owner, name or URL..."
+          />
+        </div>
+        <div class="table-responsive" style="max-height: 60vh; overflow-y: auto;">
+          <table class="table table-sm table-hover align-middle mb-0" id="discovered-table">
+            <thead class="sticky-top bg-body">
+              <tr>
+                <th>Provider</th>
+                <th>Owner</th>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Last sync</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {discoveredRepos.map((r) => {
+                const badge = statusBadge(r.last_sync_status);
+                const pinned = pinnedUrlSet.has(
+                  r.url.replace(/\.git$/, '').toLowerCase(),
+                );
+                const filterKey = `${r.owner} ${r.name} ${r.url}`.toLowerCase();
+                const detailHref = `/settings/repos/${r.id}`;
+                return (
+                  <tr data-filter={filterKey}>
+                    <td>
+                      {r.provider === 'github'
+                        ? <span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub</span>
+                        : r.provider === 'azuredevops'
+                          ? <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps</span>
+                          : <span class="badge text-bg-secondary">{r.provider}</span>}
+                    </td>
+                    <td class="small"><a href={detailHref} class="text-decoration-none"><code>{r.owner}</code></a></td>
+                    <td class="small">
+                      <a href={detailHref} class="text-decoration-none">{r.name}</a>
+                      {r.notes && <i class="bi bi-sticky ms-1 text-secondary" title="Has notes"></i>}
+                    </td>
+                    <td>
+                      {r.skip_backup === 1
+                        ? <span class="badge text-bg-secondary"><i class="bi bi-pause-circle me-1"></i>skipped</span>
+                        : <span class={`badge ${badge.cls}`}>{badge.label}</span>}
+                    </td>
+                    <td class="small text-secondary">{r.last_sync_at ?? '—'}</td>
+                    <td>
+                      {pinned
+                        ? <span class="badge text-bg-info"><i class="bi bi-pin-angle me-1"></i>extra</span>
+                        : <span class="badge text-bg-light text-secondary border"><i class="bi bi-search me-1"></i>discovered</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </>
+    )}
   </Card>
 
-  <Card title={`Configured (${repos.length})`} icon="bi-list-ul">
+  <Card title={`Extra repositories (${repos.length})`} icon="bi-pin-angle">
+    <p class="text-secondary small mb-3">
+      URLs in <code>/config/repos.txt</code> that aren't picked up by
+      auto-discovery — repos from other orgs, read-only access tokens, or
+      manual additions. Redundant entries (already in the database) are
+      removed automatically each cycle.
+    </p>
+    <div class="row g-2 align-items-end mb-3">
+      <div class="col-12 col-md">
+        <form id="add-form" class="row g-2">
+          <div class="col-12 col-md">
+            <input type="url" name="url" placeholder="https://github.com/owner/repo" required class="form-control form-control-sm" />
+          </div>
+          <div class="col-12 col-md-auto">
+            <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Add extra</button>
+          </div>
+        </form>
+      </div>
+      <div class="col-12 col-md-auto">
+        <button type="button" id="cleanup-btn" class="btn btn-sm btn-outline-warning">
+          <i class="bi bi-broom me-1"></i>Clean up now
+        </button>
+      </div>
+    </div>
+    {loadError && <div class="alert alert-warning py-2 mb-2 small"><i class="bi bi-exclamation-triangle-fill me-2"></i>{loadError}</div>}
     {repos.length === 0 ? (
-      <p class="text-secondary mb-0">No repositories configured yet.</p>
+      <p class="text-secondary mb-0">
+        No extras. All your repositories come from auto-discovery — that's the
+        normal, clean state.
+      </p>
     ) : (
       <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
+        <table class="table table-sm table-hover align-middle mb-0">
           <thead>
             <tr><th>Provider</th><th>URL</th><th class="text-end">Action</th></tr>
           </thead>
@@ -122,6 +296,38 @@ const hasExclusions = githubExcluded.length + adoExcluded.length > 0;
   </Card>
 </Layout>
 
+<!-- Cleanup repos.txt modal -->
+<div class="modal fade" id="cleanupModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-broom me-1"></i>Clean up redundant URLs</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-secondary small mb-2">
+          The following URLs in <code>repos.txt</code> are already covered by
+          the database. Removing them keeps the file focused on <em>extras</em>
+          that auto-discovery can't see.
+        </p>
+        <p class="text-secondary small mb-3">
+          Comments and blank lines in <code>repos.txt</code> are preserved. No
+          local backup files are touched.
+        </p>
+        <div id="cleanupList" class="border rounded p-2" style="max-height: 40vh; overflow-y: auto;">
+          <p class="text-secondary small mb-0">Loading…</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-warning" id="cleanupConfirm" disabled>
+          <i class="bi bi-broom me-1"></i>Remove
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Delete confirmation modal -->
 <div class="modal fade" id="deleteRepoModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -142,8 +348,8 @@ const hasExclusions = githubExcluded.length + adoExcluded.length > 0;
             Also exclude from auto-discovery (blacklist)
           </label>
           <div class="form-text">
-            Without this, an enabled <em>Auto-append</em> will re-add the repo to
-            <code>repos.txt</code> on the next discovery cycle.
+            Without this, auto-discovery will surface the repo again on the
+            next cycle. Blacklisting prevents that.
           </div>
         </div>
       </div>
@@ -160,6 +366,71 @@ const hasExclusions = githubExcluded.length + adoExcluded.length > 0;
 <script>
   import { toast } from '../../scripts/toasts.ts';
   import { Modal } from 'bootstrap';
+
+  // Client-side filter for the discovered repositories table.
+  const discoveredFilter = document.getElementById('discovered-filter') as HTMLInputElement | null;
+  const discoveredTable = document.getElementById('discovered-table') as HTMLTableElement | null;
+  discoveredFilter?.addEventListener('input', () => {
+    const q = discoveredFilter.value.trim().toLowerCase();
+    discoveredTable?.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach((row) => {
+      const key = row.getAttribute('data-filter') ?? '';
+      row.style.display = !q || key.includes(q) ? '' : 'none';
+    });
+  });
+
+  // Cleanup repos.txt flow: open modal → preview list → confirm → POST.
+  const cleanupBtn = document.getElementById('cleanup-btn') as HTMLButtonElement | null;
+  const cleanupModalEl = document.getElementById('cleanupModal');
+  const cleanupListEl = document.getElementById('cleanupList');
+  const cleanupConfirm = document.getElementById('cleanupConfirm') as HTMLButtonElement | null;
+  const cleanupModal = cleanupModalEl ? new Modal(cleanupModalEl) : null;
+
+  cleanupBtn?.addEventListener('click', async () => {
+    if (!cleanupModal || !cleanupListEl || !cleanupConfirm) return;
+    cleanupListEl.innerHTML = '<p class="text-secondary small mb-0">Loading…</p>';
+    cleanupConfirm.disabled = true;
+    cleanupModal.show();
+    try {
+      const res = await fetch('/api/repos/cleanup');
+      const j = (await res.json()) as { removable?: string[] };
+      const items = j.removable ?? [];
+      if (items.length === 0) {
+        cleanupListEl.innerHTML =
+          '<p class="text-success small mb-0"><i class="bi bi-check-circle me-1"></i>Nothing to remove — <code>repos.txt</code> is already clean.</p>';
+      } else {
+        const rows = items
+          .map(
+            (u) =>
+              `<div class="small text-truncate"><code>${u.replace(/</g, '&lt;')}</code></div>`,
+          )
+          .join('');
+        cleanupListEl.innerHTML =
+          `<p class="small mb-2"><strong>${items.length}</strong> URL(s) will be removed:</p>${rows}`;
+        cleanupConfirm.disabled = false;
+      }
+    } catch {
+      cleanupListEl.innerHTML =
+        '<p class="text-danger small mb-0">Failed to load preview.</p>';
+    }
+  });
+
+  cleanupConfirm?.addEventListener('click', async () => {
+    if (!cleanupConfirm) return;
+    cleanupConfirm.disabled = true;
+    try {
+      const res = await fetch('/api/repos/cleanup', { method: 'POST' });
+      const j = (await res.json()) as { removed?: string[] };
+      const count = j.removed?.length ?? 0;
+      toast(
+        count === 0 ? 'Nothing to remove' : `Removed ${count} URL(s) from repos.txt`,
+        count === 0 ? 'info' : 'success',
+      );
+      setTimeout(() => location.reload(), 500);
+    } catch {
+      toast('Cleanup failed', 'danger');
+      cleanupConfirm.disabled = false;
+    }
+  });
 
   const form = document.getElementById('add-form') as HTMLFormElement | null;
   form?.addEventListener('submit', async (e) => {

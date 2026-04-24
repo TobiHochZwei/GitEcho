@@ -47,6 +47,13 @@ export interface BackupRun {
   repos_skipped: number;
   error_summary: string | null;
   backup_mode: string;
+  /**
+   * 1 if the user (or an operator) has requested that this run be cancelled.
+   * The backup engine polls this flag between repositories and stops the
+   * loop gracefully — the currently running repo is finished first so we
+   * never leave half-written archives on disk.
+   */
+  cancellation_requested: number;
 }
 
 export interface BackupItem {
@@ -159,6 +166,14 @@ const MIGRATIONS: ReadonlyArray<(instance: DatabaseInstance) => void> = [
       DROP TABLE backup_items;
       ALTER TABLE backup_items_new RENAME TO backup_items;
     `);
+  },
+  // v1 → v2: add `cancellation_requested` flag to backup_runs so a user
+  // can request a graceful cancellation of a running backup. The engine
+  // polls this flag between repositories and stops the loop cleanly.
+  (instance) => {
+    instance.exec(
+      `ALTER TABLE backup_runs ADD COLUMN cancellation_requested INTEGER NOT NULL DEFAULT 0`,
+    );
   },
 ];
 
@@ -719,11 +734,22 @@ export function deleteBackupRun(id: number): boolean {
 /**
  * Mark any run still in the `running` state as failed. Used to reconcile
  * runs that were orphaned by a process crash or container restart.
+ * Runs that had a pending cancellation request are marked as `cancelled`
+ * instead, since the user explicitly asked them to stop.
  * Returns the number of rows updated.
  */
 export function markStuckRunsFailed(reason = 'Process terminated before run completed'): number {
   const database = getDatabase();
-  const result = database
+  const cancelled = database
+    .prepare(
+      `UPDATE backup_runs
+          SET status = 'cancelled',
+              completed_at = COALESCE(completed_at, datetime('now')),
+              error_summary = COALESCE(error_summary, 'Cancelled by user')
+        WHERE status = 'running' AND cancellation_requested = 1`,
+    )
+    .run();
+  const failed = database
     .prepare(
       `UPDATE backup_runs
           SET status = 'failed',
@@ -732,7 +758,36 @@ export function markStuckRunsFailed(reason = 'Process terminated before run comp
         WHERE status = 'running'`,
     )
     .run(reason);
-  return result.changes;
+  return cancelled.changes + failed.changes;
+}
+
+/**
+ * Request a graceful cancellation of a running backup. The engine polls
+ * this flag between repositories and stops the loop cleanly. Returns
+ * `true` if a row was updated (i.e. the run exists and is still running).
+ */
+export function requestRunCancellation(id: number): boolean {
+  const database = getDatabase();
+  const result = database
+    .prepare(
+      `UPDATE backup_runs
+          SET cancellation_requested = 1
+        WHERE id = ? AND status = 'running'`,
+    )
+    .run(id);
+  return result.changes > 0;
+}
+
+/**
+ * Return true if a cancellation has been requested for the given run.
+ * Used by the backup engine to decide whether to stop between repos.
+ */
+export function isRunCancellationRequested(id: number): boolean {
+  const database = getDatabase();
+  const row = database
+    .prepare('SELECT cancellation_requested FROM backup_runs WHERE id = ?')
+    .get(id) as { cancellation_requested: number } | undefined;
+  return row?.cancellation_requested === 1;
 }
 
 // ─── Stats ───────────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ function statusVariant(s: string): string {
     case 'partial': return 'warning';
     case 'partial_failure': return 'warning';
     case 'unavailable': return 'warning';
+    case 'cancelled': return 'secondary';
     default: return 'secondary';
   }
 }

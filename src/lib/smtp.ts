@@ -12,6 +12,8 @@ export interface BackupSummary {
   skippedCount: number;
   backupMode: string;
   failures?: Array<{ repo: string; error: string }>;
+  /** True when the user cancelled the run before all repos were processed. */
+  cancelled?: boolean;
 }
 
 export interface PatWarning {
@@ -428,6 +430,14 @@ export async function notifyBackupCycleReport(report: BackupCycleReport): Promis
     newRepos.length > 0 ||
     Boolean(criticalError);
 
+  // User-cancelled runs are a deliberate action, not a delivery outcome
+  // worth emailing about on their own. Suppress the notification unless
+  // something else in the cycle still needs attention.
+  if (summary.cancelled && !hasAttentionItems) {
+    logger.debug('[smtp] Cycle was cancelled by user with no attention items — no email sent');
+    return;
+  }
+
   if (!hasAttentionItems && !notifyOnSuccess) {
     logger.debug('[smtp] Cycle completed cleanly and NOTIFY_ON_SUCCESS=false — no email sent');
     return;
@@ -450,6 +460,11 @@ export async function notifyBackupCycleReport(report: BackupCycleReport): Promis
     bannerBg = '#ffe2e0';
     statusLabel = 'Cycle crashed';
     subjectIcon = '🚨';
+  } else if (summary.cancelled) {
+    bannerColor = '#656d76';
+    bannerBg = '#f6f8fa';
+    statusLabel = 'Cancelled by user';
+    subjectIcon = '🛑';
   } else if (summary.failedCount > 0 && summary.successCount === 0) {
     bannerColor = '#cf222e';
     bannerBg = '#ffe2e0';

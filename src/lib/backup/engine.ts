@@ -5,6 +5,7 @@ import { getConfig } from '../config';
 import {
   createBackupItem,
   createBackupRun,
+  isRunCancellationRequested,
   updateBackupItem,
   updateBackupRun,
   updateRepositorySync,
@@ -39,6 +40,8 @@ export interface BackupResult {
   failures: Array<{ repo: string; error: string }>;
   unavailable: Array<{ repo: string; url: string; error: string }>;
   backupMode: string;
+  /** True if the run was cancelled by the user before processing every repo. */
+  cancelled: boolean;
   /** Repositories seen for the first time during this run, grouped by provider. */
   newRepos: NewRepoEntry[];
   /** PAT expiry warnings captured at the start of the cycle. */
@@ -103,9 +106,46 @@ export async function runBackup(): Promise<BackupResult> {
   // Update run with total count
   updateBackupRun(run.id, { repos_total: allRepos.length });
 
+  // True once a cancellation has been observed for this run. Remaining
+  // repos are skipped (but still materialised as `skipped` backup_items
+  // so the UI shows an honest picture of what happened).
+  let cancelled = false;
+
   // Process repos sequentially to avoid overwhelming git/network
   for (const { plugin, repo } of allRepos) {
+    // Graceful cancellation: check the flag BEFORE starting each repo so
+    // any in-flight git/archive operation always runs to completion and
+    // leaves no half-written files behind.
+    if (!cancelled && isRunCancellationRequested(run.id)) {
+      cancelled = true;
+      logger.info(`[backup] Cancellation requested for run #${run.id} — stopping after current progress`);
+    }
+
     const repoLabel = `${repo.provider}/${repo.owner}/${repo.name}`;
+
+    if (cancelled) {
+      // Record remaining repos as skipped so the run detail page clearly
+      // shows which repos were dropped by the cancellation.
+      const dbRepo = upsertRepository({
+        url: repo.url,
+        provider: repo.provider,
+        owner: repo.owner,
+        name: repo.name,
+      });
+      if (dbRepo && typeof dbRepo.id === 'number') {
+        const item = createBackupItem({ runId: run.id, repositoryId: dbRepo.id });
+        if (item && typeof item.id === 'number') {
+          updateBackupItem(item.id, {
+            status: 'skipped',
+            error: 'Run cancelled by user',
+            completed_at: new Date().toISOString(),
+          });
+        }
+      }
+      skippedCount++;
+      continue;
+    }
+
     logger.info(`[backup] Backing up ${repoLabel}...`);
 
     const dbRepo = upsertRepository({
@@ -248,6 +288,15 @@ export async function runBackup(): Promise<BackupResult> {
 
   // Finalize the backup run
   const completedAt = new Date().toISOString();
+
+  // If no cancellation was observed during the loop itself, double-check
+  // one last time — a flag set between the last repo and finalisation
+  // still counts, and surfacing it as `cancelled` is more accurate than
+  // labelling an otherwise clean run `success`.
+  if (!cancelled && isRunCancellationRequested(run.id)) {
+    cancelled = true;
+  }
+
   const errorParts: string[] = [];
   if (failures.length > 0) {
     errorParts.push(failures.map((f) => `${f.repo}: ${f.error}`).join('\n'));
@@ -257,11 +306,20 @@ export async function runBackup(): Promise<BackupResult> {
       `Unavailable upstream:\n` + unavailable.map((u) => `${u.repo}: ${u.error}`).join('\n'),
     );
   }
+  if (cancelled) {
+    errorParts.unshift('Cancelled by user');
+  }
   const errorSummary = errorParts.length > 0 ? errorParts.join('\n\n') : null;
+
+  const finalStatus = cancelled
+    ? 'cancelled'
+    : failedCount === 0 && unavailableCount === 0
+      ? 'success'
+      : 'partial_failure';
 
   updateBackupRun(run.id, {
     completed_at: completedAt,
-    status: failedCount === 0 && unavailableCount === 0 ? 'success' : 'partial_failure',
+    status: finalStatus,
     repos_total: allRepos.length,
     repos_success: successCount,
     repos_failed: failedCount,
@@ -271,7 +329,7 @@ export async function runBackup(): Promise<BackupResult> {
   });
 
   logger.info(
-    `[backup] Completed: ${successCount}/${allRepos.length} succeeded, ${failedCount} failed, ${unavailableCount} unavailable, ${skippedCount} skipped`,
+    `[backup] ${cancelled ? 'Cancelled' : 'Completed'}: ${successCount}/${allRepos.length} succeeded, ${failedCount} failed, ${unavailableCount} unavailable, ${skippedCount} skipped`,
   );
 
   // Refresh the persistent storage-usage cache so the dashboard shows
@@ -296,6 +354,7 @@ export async function runBackup(): Promise<BackupResult> {
     failures,
     unavailable,
     backupMode,
+    cancelled,
     newRepos,
     patWarnings,
   };

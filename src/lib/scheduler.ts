@@ -41,6 +41,7 @@ export async function executeBackupCycle(): Promise<void> {
       skippedCount: 0,
       backupMode: result.backupMode,
       failures: result.failures,
+      cancelled: result.cancelled,
     };
 
     const report: BackupCycleReport = {

@@ -260,15 +260,22 @@ export function getExtendedStats(): ExtendedStats {
     .all() as Array<{ status: string; repos_total: number }>;
   let successRate30: number | null = null;
   if (last30.length > 0) {
-    const ok = last30.filter((r) => r.status === 'success').length;
-    successRate30 = Math.round((ok / last30.length) * 100);
+    // Cancelled runs represent a deliberate user action, not a failure —
+    // exclude them from the success-rate denominator so a few manual
+    // cancellations don't drag the health indicator down.
+    const considered = last30.filter((r) => r.status !== 'cancelled');
+    if (considered.length > 0) {
+      const ok = considered.filter((r) => r.status === 'success').length;
+      successRate30 = Math.round((ok / considered.length) * 100);
+    }
   }
 
   const failed7d = (
     db
       .prepare(
         `SELECT COUNT(*) as count FROM backup_runs
-         WHERE status != 'success' AND started_at >= datetime('now', '-7 days')`,
+         WHERE status != 'success' AND status != 'cancelled'
+           AND started_at >= datetime('now', '-7 days')`,
       )
       .get() as { count: number }
   ).count;

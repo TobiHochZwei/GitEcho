@@ -28,6 +28,7 @@ function statusVariant(s: string): string {
     case 'partial': return 'warning';
     case 'partial_failure': return 'warning';
     case 'unavailable': return 'warning';
+    case 'cancelled': return 'secondary';
     case 'skipped': return 'secondary';
     default: return 'secondary';
   }
@@ -80,6 +81,44 @@ function duration(start: string | null, end: string | null): string {
             <pre class="mb-0 mt-2 small" style="white-space: pre-wrap;">{run.error_summary}</pre>
           </div>
         )}
+        {run.status === 'running' && (
+          <div class="alert alert-warning mt-3 mb-0">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+              <div class="flex-grow-1">
+                <strong><i class="bi bi-stop-circle me-1"></i>Cancel this run</strong>
+                <div class="small mt-1 mb-0">
+                  {run.cancellation_requested === 1 ? (
+                    <>
+                      Cancellation has been requested. GitEcho is finishing the currently
+                      running repository and will mark the run as <code>cancelled</code>
+                      afterwards. Remaining repositories will be skipped.
+                    </>
+                  ) : (
+                    <>
+                      The currently running repository is always finished before the run
+                      stops — this avoids half-written archives, corrupted mirror clones
+                      or orphaned temp files. All remaining repositories are then skipped
+                      and the run is marked as <code>cancelled</code>. The next scheduled
+                      backup cycle still runs normally.
+                    </>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                class="btn btn-outline-warning js-cancel-run"
+                data-run-id={run.id}
+                disabled={run.cancellation_requested === 1}
+              >
+                {run.cancellation_requested === 1 ? (
+                  <><span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Cancellation pending</>
+                ) : (
+                  <><i class="bi bi-stop-circle me-1"></i>Cancel run</>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card title={`Per-repository results (${items.length})`} icon="bi-list-task">
@@ -121,3 +160,34 @@ function duration(start: string | null, end: string | null): string {
     </>
   )}
 </Layout>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>('.js-cancel-run').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.runId;
+      if (!id) return;
+      const confirmMsg =
+        `Cancel backup run #${id}?\n\n` +
+        `The currently running repository will finish normally (no half-written ` +
+        `archives). All remaining repositories will be skipped and the run will ` +
+        `be marked as "cancelled". The next scheduled backup cycle still runs.`;
+      if (!confirm(confirmMsg)) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/api/runs/${id}/cancel`, { method: 'POST' });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || body.ok === false) {
+          alert(body.error ?? `Failed to cancel run (HTTP ${res.status}).`);
+          btn.disabled = false;
+          return;
+        }
+        // Reload so the UI reflects the pending-cancellation state and
+        // eventually the final `cancelled` status once the engine stops.
+        window.location.reload();
+      } catch (err) {
+        alert(`Failed to cancel run: ${(err as Error).message}`);
+        btn.disabled = false;
+      }
+    });
+  });
+</script>

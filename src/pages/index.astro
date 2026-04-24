@@ -235,7 +235,14 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
         {history.length === 0 ? (
           <p class="text-secondary mb-0">No backup runs yet.</p>
         ) : (
-          <div style="height: 220px;"><canvas id="history-chart"></canvas></div>
+          <div style="height: 220px;">
+            <canvas
+              id="history-chart"
+              data-labels={historyLabels}
+              data-success={historySuccess}
+              data-failed={historyFailed}
+            ></canvas>
+          </div>
         )}
       </Card>
     </div>
@@ -310,31 +317,31 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
   </Card>
 </Layout>
 
-<script define:vars={{ historyLabels, historySuccess, historyFailed }}>
-  // Render chart
-  if (window.Chart === undefined && document.getElementById('history-chart')) {
-    import('chart.js/auto').then(({ default: Chart }) => {
-      const ctx = document.getElementById('history-chart');
-      if (!ctx) return;
-      const labels = JSON.parse(historyLabels).map((id) => `#${id}`);
-      const success = JSON.parse(historySuccess);
-      const failed = JSON.parse(historyFailed);
-      new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels,
-          datasets: [
-            { label: 'Success', data: success, backgroundColor: 'rgba(25,135,84,0.7)', stack: 's' },
-            { label: 'Failed', data: failed, backgroundColor: 'rgba(220,53,69,0.7)', stack: 's' },
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } },
-          plugins: { legend: { position: 'bottom' } },
-        },
-      });
+<script>
+  // Render chart. Using a regular (non-`define:vars`) script so Vite bundles
+  // the `chart.js/auto` import — inline scripts can't resolve bare specifiers.
+  import Chart from 'chart.js/auto';
+
+  const canvas = document.getElementById('history-chart') as HTMLCanvasElement | null;
+  if (canvas) {
+    const labels = JSON.parse(canvas.dataset.labels || '[]').map((id: number) => `#${id}`);
+    const success = JSON.parse(canvas.dataset.success || '[]');
+    const failed = JSON.parse(canvas.dataset.failed || '[]');
+    new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Success', data: success, backgroundColor: 'rgba(25,135,84,0.7)', stack: 's' },
+          { label: 'Failed', data: failed, backgroundColor: 'rgba(220,53,69,0.7)', stack: 's' },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } },
+        plugins: { legend: { position: 'bottom' } },
+      },
     });
   }
 </script>

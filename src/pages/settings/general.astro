@@ -6,6 +6,22 @@ import { humanizeCron } from '../../lib/cron-humanize.js';
 
 const cfg = getConfig();
 const cronHuman = humanizeCron(cfg.cronSchedule);
+
+// Parse PUBLIC_URL — used by the CSRF origin check in middleware.ts to accept
+// state-changing requests coming through a reverse proxy / different port.
+const publicUrlRaw = process.env.PUBLIC_URL ?? '';
+const publicUrls: { value: string; valid: boolean; normalized: string | null }[] = publicUrlRaw
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0)
+  .map((value) => {
+    try {
+      const u = new URL(value);
+      return { value, valid: true, normalized: `${u.protocol}//${u.host}` };
+    } catch {
+      return { value, valid: false, normalized: null };
+    }
+  });
 ---
 <Layout
   title="GitEcho — Settings · General"
@@ -41,6 +57,37 @@ const cronHuman = humanizeCron(cfg.cronSchedule);
           </div>
           <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save</button>
         </form>
+      </Card>
+    </div>
+
+    <div class="col-12 col-lg-8">
+      <Card title="Allowed origins (PUBLIC_URL)" icon="bi-shield-lock">
+        <p class="small text-secondary mb-2">
+          Cross-site POST/PUT/DELETE requests are rejected unless the browser's
+          <code>Origin</code> matches one of these URLs. Configure via the
+          <code>PUBLIC_URL</code> environment variable (comma-separated).
+          Restart the container to apply changes.
+        </p>
+        {publicUrls.length === 0 ? (
+          <div class="alert alert-warning mb-0 py-2 small" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+            <code>PUBLIC_URL</code> is not set. Same-origin requests still work,
+            but any reverse-proxy / different-port access will be rejected with 403.
+          </div>
+        ) : (
+          <ul class="list-group">
+            {publicUrls.map((entry) => (
+              <li class="list-group-item d-flex justify-content-between align-items-center">
+                <code class="text-break">{entry.value}</code>
+                {entry.valid ? (
+                  <span class="badge text-bg-success"><i class="bi bi-check-circle me-1"></i>{entry.normalized}</span>
+                ) : (
+                  <span class="badge text-bg-danger"><i class="bi bi-x-circle me-1"></i>Invalid URL</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
     </div>
 

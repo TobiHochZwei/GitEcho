@@ -1,0 +1,38 @@
+# Configuration for GitHub's auto-generated release notes.
+# Used by `gh release create --generate-notes` and the release step in
+# .github/workflows/docker-publish.yml.
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+      - dependencies
+    authors:
+      - dependabot
+  categories:
+    - title: 🚨 Breaking Changes
+      labels:
+        - breaking-change
+        - breaking
+    - title: ✨ Features
+      labels:
+        - enhancement
+        - feature
+    - title: 🐛 Bug Fixes
+      labels:
+        - bug
+        - fix
+    - title: 📦 Dependencies
+      labels:
+        - dependencies
+    - title: 📝 Documentation
+      labels:
+        - documentation
+        - docs
+    - title: 🧰 Maintenance
+      labels:
+        - chore
+        - refactor
+        - ci
+    - title: Other Changes
+      labels:
+        - "*"

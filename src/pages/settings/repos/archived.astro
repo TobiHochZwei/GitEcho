@@ -1,0 +1,286 @@
+---
+// List of archived repositories.
+//
+// Archived repos remain in the DB but are excluded from discovery and
+// the backup engine. This page lets users:
+//   - Download the archive ZIP produced when they archived the repo.
+//   - Reactivate the repo for future sync (historical data is NOT restored).
+//   - Delete the repo permanently (with name-confirmation).
+
+import { statSync } from 'node:fs';
+import { join } from 'node:path';
+import Layout from '../../../layouts/Layout.astro';
+import Card from '../../../components/Card.astro';
+import { getRepositories, type Repository } from '../../../lib/database.js';
+import { loadConfig } from '../../../lib/config.js';
+
+const cfg = loadConfig();
+
+let archived: Repository[] = [];
+let loadError: string | null = null;
+try {
+  archived = getRepositories(undefined, { onlyArchived: true });
+} catch (err) {
+  loadError = (err as Error).message;
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
+}
+
+function archiveStats(rel: string | null): { size: string; exists: boolean } {
+  if (!rel) return { size: '—', exists: false };
+  try {
+    const full = join(cfg.backupsDir, rel);
+    const st = statSync(full);
+    return { size: formatSize(st.size), exists: true };
+  } catch {
+    return { size: '—', exists: false };
+  }
+}
+---
+<Layout
+  title="GitEcho — Archived Repositories"
+  active="settings"
+  settingsActive="repos"
+  pageTitle="Archived Repositories"
+  breadcrumbs={[
+    { label: 'Home', href: '/' },
+    { label: 'Settings', href: '/settings' },
+    { label: 'Repositories', href: '/settings/repos' },
+    { label: 'Archived' },
+  ]}
+>
+  <div class="alert alert-secondary d-flex gap-3" role="alert">
+    <i class="bi bi-archive-fill fs-4"></i>
+    <div class="small">
+      Archived repositories are excluded from discovery and backup runs.
+      Their existing backup data has been packed into a single ZIP under
+      <code>_archived/</code>. You can <strong>download</strong> the archive,
+      <strong>reactivate</strong> the repo (future syncs resume, historical
+      data is <em>not</em> restored), or <strong>delete</strong> it
+      permanently.
+    </div>
+  </div>
+
+  <Card title={`Archived (${archived.length})`} icon="bi-archive">
+    {loadError && (
+      <div class="alert alert-warning py-2 small">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>{loadError}
+      </div>
+    )}
+    {archived.length === 0 ? (
+      <p class="text-secondary mb-0">
+        No archived repositories. Use the <em>Danger zone</em> on a
+        repository detail page to archive one.
+      </p>
+    ) : (
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Repository</th>
+              <th>Archived at</th>
+              <th>Archive size</th>
+              <th class="text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {archived.map((r) => {
+              const stats = archiveStats(r.archive_path);
+              const downloadHref = r.archive_path
+                ? `/api/download?path=${encodeURIComponent(r.archive_path)}&file=true`
+                : null;
+              return (
+                <tr data-repo-id={r.id} data-repo-name={r.name}>
+                  <td>
+                    {r.provider === 'github'
+                      ? <span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub</span>
+                      : r.provider === 'azuredevops'
+                        ? <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps</span>
+                        : r.provider === 'gitlab'
+                          ? <span class="badge text-bg-warning"><i class="bi bi-gitlab me-1"></i>GitLab</span>
+                          : <span class="badge text-bg-secondary">{r.provider}</span>}
+                  </td>
+                  <td>
+                    <a href={`/settings/repos/${r.id}`} class="text-decoration-none">
+                      <code>{r.owner}</code> / <strong>{r.name}</strong>
+                    </a>
+                  </td>
+                  <td class="small text-secondary">{r.archived_at ?? '—'}</td>
+                  <td class="small text-secondary">{stats.size}{!stats.exists && r.archive_path && (<span class="text-danger ms-1" title="ZIP missing on disk"><i class="bi bi-exclamation-triangle"></i></span>)}</td>
+                  <td class="text-end">
+                    <div class="btn-group btn-group-sm" role="group">
+                      {downloadHref && stats.exists ? (
+                        <a class="btn btn-outline-primary" href={downloadHref} download>
+                          <i class="bi bi-download me-1"></i>Download
+                        </a>
+                      ) : (
+                        <button type="button" class="btn btn-outline-primary" disabled>
+                          <i class="bi bi-download me-1"></i>Download
+                        </button>
+                      )}
+                      <button type="button" class="btn btn-outline-success" data-action="unarchive">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Reactivate
+                      </button>
+                      <button type="button" class="btn btn-outline-danger" data-action="delete">
+                        <i class="bi bi-trash me-1"></i>Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </Card>
+</Layout>
+
+<div class="modal fade" id="deleteRepoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content border-danger">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title"><i class="bi bi-trash-fill me-1"></i>Delete repository permanently</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-danger small mb-3">
+          <i class="bi bi-exclamation-octagon-fill me-1"></i>
+          <strong>This cannot be undone.</strong> The archive ZIP, the DB
+          entry, and any remaining backup files will be removed. The URL
+          will be added to the provider blacklist.
+        </div>
+        <p class="mb-2">To confirm, type the repository name:</p>
+        <p class="mb-2"><code class="fs-6" id="deleteRepoName">—</code></p>
+        <input type="text" id="deleteConfirmInput" class="form-control" autocomplete="off" />
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="deleteConfirmBtn" disabled>
+          <i class="bi bi-trash-fill me-1"></i>Delete permanently
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="unarchiveModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-arrow-counterclockwise me-1"></i>Reactivate repository</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">Reactivate <code id="unarchiveRepoName">—</code>?</p>
+        <div class="alert alert-info small mb-0">
+          <i class="bi bi-info-circle-fill me-1"></i>
+          The archive ZIP will be <strong>deleted</strong>. The repository
+          starts backing up again on the next cycle, but historical backup
+          data is <em>not</em> restored.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-success" id="unarchiveConfirmBtn">
+          <i class="bi bi-arrow-counterclockwise me-1"></i>Reactivate
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { Modal } from 'bootstrap';
+  import { toast } from '../../../scripts/toasts.ts';
+
+  const deleteModalEl = document.getElementById('deleteRepoModal');
+  const deleteNameEl = document.getElementById('deleteRepoName');
+  const deleteInput = document.getElementById('deleteConfirmInput') as HTMLInputElement | null;
+  const deleteConfirmBtn = document.getElementById('deleteConfirmBtn') as HTMLButtonElement | null;
+
+  const unarchiveModalEl = document.getElementById('unarchiveModal');
+  const unarchiveNameEl = document.getElementById('unarchiveRepoName');
+  const unarchiveConfirmBtn = document.getElementById('unarchiveConfirmBtn') as HTMLButtonElement | null;
+
+  let pending: { id: string; name: string } | null = null;
+
+  deleteInput?.addEventListener('input', () => {
+    if (!deleteConfirmBtn || !pending) return;
+    deleteConfirmBtn.disabled = deleteInput.value !== pending.name;
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('button[data-action="delete"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('tr');
+      const id = row?.getAttribute('data-repo-id') ?? '';
+      const name = row?.getAttribute('data-repo-name') ?? '';
+      if (!id || !name || !deleteModalEl || !deleteInput || !deleteConfirmBtn || !deleteNameEl) return;
+      pending = { id, name };
+      deleteNameEl.textContent = name;
+      deleteInput.value = '';
+      deleteConfirmBtn.disabled = true;
+      Modal.getOrCreateInstance(deleteModalEl).show();
+    });
+  });
+
+  deleteConfirmBtn?.addEventListener('click', async () => {
+    if (!pending || !deleteInput || deleteInput.value !== pending.name) return;
+    deleteConfirmBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/repos/${pending.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmName: deleteInput.value }),
+      });
+      if (res.ok) {
+        toast('Repository deleted.', 'success');
+        setTimeout(() => location.reload(), 400);
+      } else {
+        const j = await res.json().catch(() => ({}));
+        toast(`Delete failed: ${j.error ?? res.statusText}`, 'danger');
+        deleteConfirmBtn.disabled = false;
+      }
+    } catch (e) {
+      toast(`Delete failed: ${(e as Error).message}`, 'danger');
+      deleteConfirmBtn.disabled = false;
+    }
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('button[data-action="unarchive"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('tr');
+      const id = row?.getAttribute('data-repo-id') ?? '';
+      const name = row?.getAttribute('data-repo-name') ?? '';
+      if (!id || !unarchiveModalEl || !unarchiveNameEl) return;
+      pending = { id, name };
+      unarchiveNameEl.textContent = name;
+      Modal.getOrCreateInstance(unarchiveModalEl).show();
+    });
+  });
+
+  unarchiveConfirmBtn?.addEventListener('click', async () => {
+    if (!pending) return;
+    unarchiveConfirmBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/repos/${pending.id}/unarchive`, { method: 'POST' });
+      if (res.ok) {
+        toast('Repository reactivated.', 'success');
+        setTimeout(() => location.reload(), 400);
+      } else {
+        const j = await res.json().catch(() => ({}));
+        toast(`Reactivate failed: ${j.error ?? res.statusText}`, 'danger');
+      }
+    } catch (e) {
+      toast(`Reactivate failed: ${(e as Error).message}`, 'danger');
+    } finally {
+      if (unarchiveConfirmBtn) unarchiveConfirmBtn.disabled = false;
+    }
+  });
+</script>

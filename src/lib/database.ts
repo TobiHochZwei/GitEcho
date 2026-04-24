@@ -28,6 +28,9 @@ export interface Repository {
   notes: string | null;
   skip_backup: number;
   debug_trace: number;
+  archived: number;
+  archived_at: string | null;
+  archive_path: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -49,7 +52,7 @@ export interface BackupRun {
 export interface BackupItem {
   id: number;
   run_id: number;
-  repository_id: number;
+  repository_id: number | null;
   status: string;
   error: string | null;
   checksum: string | null;
@@ -86,6 +89,9 @@ const SCHEMA = `
     notes TEXT,
     skip_backup INTEGER NOT NULL DEFAULT 0,
     debug_trace INTEGER NOT NULL DEFAULT 0,
+    archived INTEGER NOT NULL DEFAULT 0,
+    archived_at TEXT,
+    archive_path TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -107,7 +113,7 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS backup_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL REFERENCES backup_runs(id),
-    repository_id INTEGER NOT NULL REFERENCES repositories(id),
+    repository_id INTEGER REFERENCES repositories(id),
     status TEXT NOT NULL,
     error TEXT,
     checksum TEXT,
@@ -132,8 +138,28 @@ const SCHEMA = `
 //
 // See DEVELOPMENT.md §10 for the full strategy.
 const MIGRATIONS: ReadonlyArray<(instance: DatabaseInstance) => void> = [
-  // Example (do not uncomment — illustrative only):
-  // (instance) => instance.exec(`CREATE INDEX idx_items_run ON backup_items(run_id)`),
+  // v0 → v1: allow backup_items.repository_id to be NULL so a repository
+  // can be deleted while its historical run entries remain for audit.
+  // SQLite requires the 4-step table rewrite to change a column's NOT NULL.
+  (instance) => {
+    instance.exec(`
+      CREATE TABLE backup_items_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id INTEGER NOT NULL REFERENCES backup_runs(id),
+        repository_id INTEGER REFERENCES repositories(id),
+        status TEXT NOT NULL,
+        error TEXT,
+        checksum TEXT,
+        zip_path TEXT,
+        started_at TEXT,
+        completed_at TEXT
+      );
+      INSERT INTO backup_items_new (id, run_id, repository_id, status, error, checksum, zip_path, started_at, completed_at)
+        SELECT id, run_id, repository_id, status, error, checksum, zip_path, started_at, completed_at FROM backup_items;
+      DROP TABLE backup_items;
+      ALTER TABLE backup_items_new RENAME TO backup_items;
+    `);
+  },
 ];
 
 // ─── Database initialization ─────────────────────────────────────────
@@ -166,6 +192,14 @@ export function initDatabase(dataDir: string): DatabaseInstance {
     'debug_trace',
     'INTEGER NOT NULL DEFAULT 0',
   );
+  migrateAddColumnIfMissing(
+    instance,
+    'repositories',
+    'archived',
+    'INTEGER NOT NULL DEFAULT 0',
+  );
+  migrateAddColumnIfMissing(instance, 'repositories', 'archived_at', 'TEXT');
+  migrateAddColumnIfMissing(instance, 'repositories', 'archive_path', 'TEXT');
 
   runMigrations(instance);
 
@@ -256,18 +290,29 @@ export function upsertRepository(repo: {
   return row;
 }
 
-export function getRepositories(provider?: string): Repository[] {
+export function getRepositories(
+  provider?: string,
+  opts: { includeArchived?: boolean; onlyArchived?: boolean } = {},
+): Repository[] {
   const database = getDatabase();
+  const clauses: string[] = [];
+  const params: unknown[] = [];
 
-  if (provider) {
-    return database
-      .prepare('SELECT * FROM repositories WHERE provider = ? ORDER BY owner, name')
-      .all(provider) as Repository[];
+  if (opts.onlyArchived) {
+    clauses.push('archived = 1');
+  } else if (!opts.includeArchived) {
+    clauses.push('archived = 0');
   }
 
+  if (provider) {
+    clauses.push('provider = ?');
+    params.push(provider);
+  }
+
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
   return database
-    .prepare('SELECT * FROM repositories ORDER BY owner, name')
-    .all() as Repository[];
+    .prepare(`SELECT * FROM repositories ${where} ORDER BY owner, name`)
+    .all(...params) as Repository[];
 }
 
 export function getRepository(id: number): Repository | undefined {
@@ -388,6 +433,59 @@ export function setRepositoryDebugTrace(id: number, enabled: boolean): boolean {
         WHERE id = @id`,
     )
     .run({ id, enabled: enabled ? 1 : 0 });
+  return result.changes > 0;
+}
+
+/**
+ * Mark a repository as archived. Stores the path (relative to `backupsDir`)
+ * of the archive ZIP produced for it. Archived repos are excluded from
+ * discovery, the backup engine, and the default active-repos listing.
+ */
+export function archiveRepository(id: number, archivePath: string): boolean {
+  const database = getDatabase();
+  const result = database
+    .prepare(
+      `UPDATE repositories
+          SET archived = 1,
+              archived_at = datetime('now'),
+              archive_path = @archivePath,
+              updated_at = datetime('now')
+        WHERE id = @id`,
+    )
+    .run({ id, archivePath });
+  return result.changes > 0;
+}
+
+/** Reverse archive state. Does not restore any files on disk. */
+export function unarchiveRepository(id: number): boolean {
+  const database = getDatabase();
+  const result = database
+    .prepare(
+      `UPDATE repositories
+          SET archived = 0,
+              archived_at = NULL,
+              archive_path = NULL,
+              updated_at = datetime('now')
+        WHERE id = @id`,
+    )
+    .run({ id });
+  return result.changes > 0;
+}
+
+/**
+ * Permanently delete a repository row. Historical `backup_items` rows are
+ * preserved for audit purposes with their `repository_id` set to NULL so
+ * the FK does not block the delete.
+ */
+export function deleteRepository(id: number): boolean {
+  const database = getDatabase();
+  const tx = database.transaction((repoId: number) => {
+    database
+      .prepare('UPDATE backup_items SET repository_id = NULL WHERE repository_id = ?')
+      .run(repoId);
+    return database.prepare('DELETE FROM repositories WHERE id = ?').run(repoId);
+  });
+  const result = tx(id);
   return result.changes > 0;
 }
 

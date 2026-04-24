@@ -33,6 +33,7 @@ let discoveredRepos: Array<{
   notes: string | null;
 }> = [];
 let discoveredError: string | null = null;
+let archivedCount = 0;
 try {
   discoveredRepos = getRepositories().map((r) => ({
     id: r.id,
@@ -45,6 +46,7 @@ try {
     skip_backup: r.skip_backup,
     notes: r.notes,
   }));
+  archivedCount = getRepositories(undefined, { onlyArchived: true }).length;
 } catch (err) {
   discoveredError = (err as Error).message;
 }
@@ -118,6 +120,12 @@ function statusBadge(status: string | null): { cls: string; label: string } {
       <span class="badge text-bg-info"><i class="bi bi-pin-angle me-1"></i>extra</span>.
       The status shown is the result of the most recent backup attempt.
     </p>
+    <div class="mb-3">
+      <a href="/settings/repos/archived" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-archive me-1"></i>View archived
+        <span class="badge text-bg-secondary ms-1">{archivedCount}</span>
+      </a>
+    </div>
     {discoveredError && <div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle-fill me-2"></i>{discoveredError}</div>}
     {discoveredRepos.length === 0 ? (
       <p class="text-secondary mb-0">

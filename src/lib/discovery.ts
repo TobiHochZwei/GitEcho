@@ -15,7 +15,7 @@
 //   5. Optionally email a "new repos discovered" notification.
 
 import { getConfig } from './config.js';
-import { isNewRepository, upsertRepository } from './database.js';
+import { isNewRepository, upsertRepository, getRepositoryByUrl } from './database.js';
 import type { ProviderPlugin, RepositoryInfo } from './plugins/interface.js';
 import { getPluginRegistry } from './plugins/interface.js';
 import { cleanupReposFile } from './repos-file.js';
@@ -165,6 +165,14 @@ export async function runDiscovery(opts: RunDiscoveryOptions = {}): Promise<Disc
       const coveredForCleanup: string[] = [];
 
       for (const repo of kept) {
+        // Archived repos remain in the DB but must not be re-upserted or
+        // handed to the backup engine. Skip them outright; the row
+        // (including its archived flag) is preserved as-is.
+        const existing = getRepositoryByUrl(repo.url);
+        if (existing?.archived === 1) {
+          continue;
+        }
+
         const isNew = isNewRepository(repo.url);
         upsertRepository({
           url: repo.url,

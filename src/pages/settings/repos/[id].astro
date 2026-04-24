@@ -216,8 +216,7 @@ const isTracing = repo?.debug_trace === 1;
       <Card title={`Backup history (last ${history.length})`} icon="bi-clock-history">
         {history.length === 0 ? (
           <p class="text-secondary mb-0">No backup attempts recorded for this repository yet.</p>
-        ) : (
-          <div class="table-responsive">
+        ) : (          <div class="table-responsive">
             <table class="table table-sm table-hover align-middle mb-0">
               <thead>
                 <tr>
@@ -250,18 +249,109 @@ const isTracing = repo?.debug_trace === 1;
           </div>
         )}
       </Card>
+
+      <Card title="Danger zone" icon="bi-exclamation-octagon">
+        <p class="text-secondary small mb-3">
+          Archiving and deletion are destructive and <strong>cannot be undone</strong>.
+          Re-enabling an archived repository does <em>not</em> restore its
+          historical backups.
+        </p>
+        <div class="d-grid gap-2 d-md-flex">
+          {!repo.archived ? (
+            <button type="button" class="btn btn-outline-warning" id="archive-btn" data-repo-name={repo.name}>
+              <i class="bi bi-archive-fill me-1"></i>Archive repository
+            </button>
+          ) : (
+            <span class="badge text-bg-warning align-self-center p-2">
+              <i class="bi bi-archive-fill me-1"></i>Already archived{repo.archived_at ? ` on ${repo.archived_at}` : ''}
+            </span>
+          )}
+          <button type="button" class="btn btn-outline-danger" id="delete-btn" data-repo-name={repo.name}>
+            <i class="bi bi-trash-fill me-1"></i>Delete repository permanently
+          </button>
+        </div>
+      </Card>
     </>
   )}
 </Layout>
 
+{repo && (
+  <>
+    <div class="modal fade" id="archiveRepoModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header bg-warning">
+            <h5 class="modal-title"><i class="bi bi-archive-fill me-1"></i>Archive repository</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="alert alert-warning small mb-3">
+              <i class="bi bi-exclamation-triangle-fill me-1"></i>
+              <strong>This cannot be undone.</strong> Archiving will:
+              <ul class="mb-0 mt-2">
+                <li>Pack all existing backup files into a single ZIP under <code>_archived/</code>.</li>
+                <li>Delete the original backup directory.</li>
+                <li>Stop future sync and backup runs for this repository.</li>
+                <li>Hide the repository from the active list.</li>
+              </ul>
+            </div>
+            <p class="mb-2">To confirm, type the repository name:</p>
+            <p class="mb-2"><code class="fs-6">{repo.name}</code></p>
+            <input type="text" id="archive-confirm-input" class="form-control" placeholder={repo.name} autocomplete="off" />
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-warning" id="archive-confirm-btn" disabled>
+              <i class="bi bi-archive-fill me-1"></i>Archive
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="deleteRepoModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content border-danger">
+          <div class="modal-header bg-danger text-white">
+            <h5 class="modal-title"><i class="bi bi-trash-fill me-1"></i>Delete repository permanently</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="alert alert-danger small mb-3">
+              <i class="bi bi-exclamation-octagon-fill me-1"></i>
+              <strong>This cannot be undone.</strong> Deletion will:
+              <ul class="mb-0 mt-2">
+                <li>Remove all backup files for this repository from disk.</li>
+                <li>Delete any existing archive ZIP.</li>
+                <li>Remove the database entry (historical run items remain but lose their repo reference).</li>
+                <li>Add the URL to the provider blacklist so auto-discovery won't re-create the entry.</li>
+              </ul>
+            </div>
+            <p class="mb-2">To confirm, type the repository name:</p>
+            <p class="mb-2"><code class="fs-6">{repo.name}</code></p>
+            <input type="text" id="delete-confirm-input" class="form-control" placeholder={repo.name} autocomplete="off" />
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-danger" id="delete-confirm-btn" disabled>
+              <i class="bi bi-trash-fill me-1"></i>Delete permanently
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </>
+)}
+
 <script>
+  import { Modal } from 'bootstrap';
+
   // Client-side handlers for the skip toggle and notes textarea.
   // Both hit PATCH /api/repos/:id; success is signalled via the global
   // toast helper (see scripts/toasts.ts).
   const toastFn: (msg: string, variant?: string) => void =
     (window as unknown as { showToast?: (m: string, v?: string) => void }).showToast
       ?? ((m: string) => console.log(m));
-
   const skipToggle = document.getElementById('skip-backup-toggle') as HTMLInputElement | null;
   const notesInput = document.getElementById('notes-input') as HTMLTextAreaElement | null;
   const notesCount = document.getElementById('notes-count');
@@ -392,5 +482,92 @@ const isTracing = repo?.debug_trace === 1;
         debugLogsList.innerHTML =
           `<p class="text-danger small mb-0">Failed to load: ${escapeHtml(e.message)}</p>`;
       });
+  }
+
+  // ── Archive / Delete destructive actions ─────────────────────────────
+  const archiveBtn = document.getElementById('archive-btn') as HTMLButtonElement | null;
+  const archiveModalEl = document.getElementById('archiveRepoModal');
+  const archiveInput = document.getElementById('archive-confirm-input') as HTMLInputElement | null;
+  const archiveConfirmBtn = document.getElementById('archive-confirm-btn') as HTMLButtonElement | null;
+
+  const deleteBtn = document.getElementById('delete-btn') as HTMLButtonElement | null;
+  const deleteModalEl = document.getElementById('deleteRepoModal');
+  const deleteInput = document.getElementById('delete-confirm-input') as HTMLInputElement | null;
+  const deleteConfirmBtn = document.getElementById('delete-confirm-btn') as HTMLButtonElement | null;
+
+  if (archiveBtn && archiveModalEl && archiveInput && archiveConfirmBtn) {
+    const expectedName = archiveBtn.dataset.repoName ?? '';
+    const repoId = archiveBtn.closest('[data-repo-id]')?.getAttribute('data-repo-id')
+      ?? (document.querySelector('[data-repo-id]') as HTMLElement | null)?.dataset.repoId
+      ?? '';
+
+    archiveInput.addEventListener('input', () => {
+      archiveConfirmBtn.disabled = archiveInput.value !== expectedName;
+    });
+
+    archiveBtn.addEventListener('click', () => {
+      archiveInput.value = '';
+      archiveConfirmBtn.disabled = true;
+      Modal.getOrCreateInstance(archiveModalEl).show();
+    });    archiveConfirmBtn.addEventListener('click', async () => {
+      if (archiveInput.value !== expectedName) return;
+      archiveConfirmBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/repos/${repoId}/archive`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirmName: archiveInput.value }),
+        });
+        if (res.ok) {
+          toastFn('Repository archived.', 'success');
+          setTimeout(() => { window.location.href = '/settings/repos/archived'; }, 400);
+        } else {
+          const j = await res.json().catch(() => ({}));
+          toastFn(`Archive failed: ${j.error ?? res.statusText}`, 'danger');
+          archiveConfirmBtn.disabled = false;
+        }
+      } catch (e) {
+        toastFn(`Archive failed: ${(e as Error).message}`, 'danger');
+        archiveConfirmBtn.disabled = false;
+      }
+    });
+  }
+
+  if (deleteBtn && deleteModalEl && deleteInput && deleteConfirmBtn) {
+    const expectedName = deleteBtn.dataset.repoName ?? '';
+    const repoId = (document.querySelector('[data-repo-id]') as HTMLElement | null)?.dataset.repoId ?? '';
+
+    deleteInput.addEventListener('input', () => {
+      deleteConfirmBtn.disabled = deleteInput.value !== expectedName;
+    });
+
+    deleteBtn.addEventListener('click', () => {
+      deleteInput.value = '';
+      deleteConfirmBtn.disabled = true;
+      Modal.getOrCreateInstance(deleteModalEl).show();
+    });
+
+    deleteConfirmBtn.addEventListener('click', async () => {
+      if (deleteInput.value !== expectedName) return;
+      deleteConfirmBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/repos/${repoId}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirmName: deleteInput.value }),
+        });
+        if (res.ok) {
+          toastFn('Repository deleted.', 'success');
+          setTimeout(() => { window.location.href = '/settings/repos'; }, 400);
+        } else {
+          const j = await res.json().catch(() => ({}));
+          toastFn(`Delete failed: ${j.error ?? res.statusText}`, 'danger');
+          deleteConfirmBtn.disabled = false;
+        }
+      } catch (e) {
+        toastFn(`Delete failed: ${(e as Error).message}`, 'danger');
+        deleteConfirmBtn.disabled = false;
+      }
+    });
   }
 </script>

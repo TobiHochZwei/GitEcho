@@ -99,23 +99,32 @@ const user = getUsername();
   </style>
 
   <script>
-    import * as bootstrap from 'bootstrap/dist/js/bootstrap.bundle.min.js';
+    import { Dropdown, Tab, Tooltip, Popover } from 'bootstrap';
     import '../scripts/theme.ts';
     import '../scripts/sidebar.ts';
     import '../scripts/toasts.ts';
 
-    // Explicitly initialize dropdowns (Astro bundles BS as ESM, so data-api
-    // auto-init doesn't always fire).
-    const initDropdowns = () => {
-      document.querySelectorAll('[data-bs-toggle="dropdown"]').forEach((el) => {
-        // getOrCreateInstance is idempotent and attaches click handling.
-        (bootstrap as any).Dropdown.getOrCreateInstance(el);
+    // Explicitly initialize Bootstrap JS components. Astro bundles Bootstrap
+    // as ESM, which disables the jQuery-style data-api auto-init, so we attach
+    // instances ourselves. getOrCreateInstance is idempotent.
+    const initBootstrap = () => {
+      document.querySelectorAll<HTMLElement>('[data-bs-toggle="dropdown"]').forEach((el) => {
+        Dropdown.getOrCreateInstance(el);
+      });
+      document.querySelectorAll<HTMLElement>('[data-bs-toggle="tab"], [data-bs-toggle="pill"]').forEach((el) => {
+        Tab.getOrCreateInstance(el);
+      });
+      document.querySelectorAll<HTMLElement>('[data-bs-toggle="tooltip"]').forEach((el) => {
+        Tooltip.getOrCreateInstance(el);
+      });
+      document.querySelectorAll<HTMLElement>('[data-bs-toggle="popover"]').forEach((el) => {
+        Popover.getOrCreateInstance(el);
       });
     };
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initDropdowns);
+      document.addEventListener('DOMContentLoaded', initBootstrap);
     } else {
-      initDropdowns();
+      initBootstrap();
     }
   </script>
 </body>

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="public/logo.svg" alt="GitEcho logo" width="128" height="128" />
+  <img src="public/logoCentred.svg" alt="GitEcho logo" width="480" />
 </p>
 
-<h1 align="center">GitEcho</h1>
+<hr />
 
 <p align="center"><em>Self-hosted backups for GitHub, Azure DevOps and GitLab repositories.</em></p>
 
@@ -13,6 +13,16 @@
   <a href="https://github.com/TobiHochZwei/GitEcho/releases/latest"><img src="https://img.shields.io/github/v/release/TobiHochZwei/GitEcho?display_name=tag&sort=semver" alt="Latest release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/TobiHochZwei/GitEcho" alt="License" /></a>
 </p>
+
+<p align="center">
+  <b>Supported by</b>
+  <br />
+  <a href="https://www.TobiHochZwei.de">
+    <img src="public/tobihochzwei-logo.png" alt="TobiHochZwei" height="36" />
+  </a>
+</p>
+
+<hr />
 
 ## Technical Stack
 This is a node.js application built with Astro.js and background tasks in node.js

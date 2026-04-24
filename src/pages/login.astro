@@ -17,9 +17,16 @@ const redirect = Astro.url.searchParams.get('redirect') ?? '/';
     <div class="card shadow-sm" style="max-width: 420px; width: 100%;">
       <div class="card-body p-4">
         <div class="text-center mb-4">
-          <img src="/logo.svg" alt="GitEcho" class="login-logo mb-2" />
-          <h1 class="h4 mt-2 mb-0">GitEcho</h1>
-          <div class="text-secondary small">Repository backup tool</div>
+          <a
+            href="https://github.com/TobiHochZwei/GitEcho"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="GitEcho on GitHub"
+            class="d-inline-block"
+          >
+            <img src="/logoCentred.svg" alt="GitEcho" class="login-logo" />
+          </a>
+          <div class="text-secondary small mt-2">Repository backup tool</div>
         </div>
 
         {signedOut && (
@@ -47,10 +54,10 @@ const redirect = Astro.url.searchParams.get('redirect') ?? '/';
       </div>
     </div>
 
-    <div class="supported-by text-secondary small mt-4 d-flex justify-content-center align-items-center gap-2">
-      <span>Supported by</span>
+    <div class="supported-by text-secondary small mt-4 text-center">
+      <div class="fw-bold mb-1">Supported by</div>
       <a
-        href="https://github.com/TobiHochZwei"
+        href="https://www.TobiHochZwei.de"
         target="_blank"
         rel="noopener noreferrer"
         aria-label="TobiHochZwei"
@@ -63,12 +70,12 @@ const redirect = Astro.url.searchParams.get('redirect') ?? '/';
 
   <style>
     .login-logo {
-      height: 64px;
+      height: 72px;
       width: auto;
     }
     .supported-by { font-size: 0.85rem; }
     .supported-logo {
-      height: 22px;
+      height: 36px;
       width: auto;
       object-fit: contain;
     }

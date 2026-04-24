@@ -71,6 +71,61 @@ const passwordUpdatedAt = (await import('../../lib/settings.js'))
     </form>
   </Card>
 
+  <Card title="Master key" icon="bi-key">
+    <p class="small text-secondary mb-3">
+      The <code>MASTER_KEY</code> encrypts every stored secret (provider tokens,
+      SMTP password, your login hash). Keep a copy in a safe place — without it,
+      encrypted secrets can't be recovered after a container restart.
+      Re-enter your password to reveal it.
+    </p>
+
+    <div id="mk-error" class="alert alert-danger small py-2 d-none" role="alert"></div>
+
+    <form id="mk-form" autocomplete="off" novalidate>
+      <div class="row g-3 align-items-end">
+        <div class="col-md-6">
+          <label for="mkPassword" class="form-label">Confirm password</label>
+          <input
+            type="password"
+            class="form-control"
+            id="mkPassword"
+            name="mkPassword"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <div class="col-md-6 d-flex gap-2">
+          <button type="submit" class="btn btn-outline-primary" id="mk-submit">
+            <i class="bi bi-eye me-1"></i>Reveal master key
+          </button>
+          <button type="button" class="btn btn-outline-secondary d-none" id="mk-hide">
+            <i class="bi bi-eye-slash me-1"></i>Hide
+          </button>
+        </div>
+      </div>
+    </form>
+
+    <div id="mk-result" class="mt-3 d-none">
+      <label class="form-label small text-secondary mb-1">MASTER_KEY</label>
+      <div class="input-group">
+        <input
+          type="text"
+          id="mk-value"
+          class="form-control font-monospace"
+          readonly
+          spellcheck="false"
+        />
+        <button class="btn btn-outline-secondary" type="button" id="mk-copy" title="Copy to clipboard">
+          <i class="bi bi-clipboard"></i>
+        </button>
+      </div>
+      <div class="form-text">
+        <i class="bi bi-shield-lock me-1"></i>Don't share this value. Store it in your
+        password manager alongside any off-site backup of the vault directory.
+      </div>
+    </div>
+  </Card>
+
   <script>
     const form = document.getElementById('account-form') as HTMLFormElement;
     const errBox = document.getElementById('account-error') as HTMLDivElement;
@@ -121,6 +176,72 @@ const passwordUpdatedAt = (await import('../../lib/settings.js'))
       } finally {
         submit.disabled = false;
         submit.innerHTML = original;
+      }
+    });
+  </script>
+
+  <script>
+    const mkForm = document.getElementById('mk-form') as HTMLFormElement;
+    const mkErr = document.getElementById('mk-error') as HTMLDivElement;
+    const mkSubmit = document.getElementById('mk-submit') as HTMLButtonElement;
+    const mkHide = document.getElementById('mk-hide') as HTMLButtonElement;
+    const mkResult = document.getElementById('mk-result') as HTMLDivElement;
+    const mkValue = document.getElementById('mk-value') as HTMLInputElement;
+    const mkPassword = document.getElementById('mkPassword') as HTMLInputElement;
+    const mkCopy = document.getElementById('mk-copy') as HTMLButtonElement;
+
+    const hideKey = () => {
+      mkResult.classList.add('d-none');
+      mkValue.value = '';
+      mkHide.classList.add('d-none');
+      mkPassword.value = '';
+    };
+
+    mkHide.addEventListener('click', hideKey);
+
+    mkForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      mkErr.classList.add('d-none');
+      mkSubmit.disabled = true;
+      const original = mkSubmit.innerHTML;
+      mkSubmit.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Verifying…';
+      try {
+        const res = await fetch('/api/auth/reveal-master-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: mkPassword.value }),
+        });
+        const data = (await res.json()) as { ok: boolean; error?: string; masterKey?: string };
+        if (!res.ok || !data.ok || !data.masterKey) {
+          mkErr.textContent = data.error || `Failed (HTTP ${res.status}).`;
+          mkErr.classList.remove('d-none');
+          return;
+        }
+        mkValue.value = data.masterKey;
+        mkResult.classList.remove('d-none');
+        mkHide.classList.remove('d-none');
+        mkPassword.value = '';
+      } catch (e) {
+        mkErr.textContent = (e as Error).message || 'Network error.';
+        mkErr.classList.remove('d-none');
+      } finally {
+        mkSubmit.disabled = false;
+        mkSubmit.innerHTML = original;
+      }
+    });
+
+    mkCopy.addEventListener('click', async () => {
+      if (!mkValue.value) return;
+      try {
+        await navigator.clipboard.writeText(mkValue.value);
+        const icon = mkCopy.querySelector('i');
+        if (icon) {
+          icon.className = 'bi bi-check2';
+          setTimeout(() => { icon.className = 'bi bi-clipboard'; }, 1200);
+        }
+      } catch {
+        mkValue.select();
+        document.execCommand('copy');
       }
     });
   </script>

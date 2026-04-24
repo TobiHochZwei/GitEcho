@@ -99,10 +99,24 @@ const user = getUsername();
   </style>
 
   <script>
-    import 'bootstrap/dist/js/bootstrap.bundle.min.js';
+    import * as bootstrap from 'bootstrap/dist/js/bootstrap.bundle.min.js';
     import '../scripts/theme.ts';
     import '../scripts/sidebar.ts';
     import '../scripts/toasts.ts';
+
+    // Explicitly initialize dropdowns (Astro bundles BS as ESM, so data-api
+    // auto-init doesn't always fire).
+    const initDropdowns = () => {
+      document.querySelectorAll('[data-bs-toggle="dropdown"]').forEach((el) => {
+        // getOrCreateInstance is idempotent and attaches click handling.
+        (bootstrap as any).Dropdown.getOrCreateInstance(el);
+      });
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initDropdowns);
+    } else {
+      initDropdowns();
+    }
   </script>
 </body>
 </html>

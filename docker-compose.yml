@@ -26,15 +26,18 @@ services:
       BACKUP_MODE: ${BACKUP_MODE:-option1}
       CRON_SCHEDULE: ${CRON_SCHEDULE:-0 2 * * *}
 
-      # UI auth + reverse-proxy origin. When the UI is served under a
-      # different hostname/port than the container listens on (Synology DSM
-      # portal, Traefik, nginx, subdomain, …) list the public URLs here so
+      # UI reverse-proxy origin. When the UI is served under a different
+      # hostname/port than the container listens on (Synology DSM portal,
+      # Traefik, nginx, subdomain, …) list the public URLs here so
       # state-changing requests (add/remove repo, save settings, …) aren't
       # rejected with 403. Comma-separated, include scheme + host + optional
       # port. Example: https://gitecho.example.com,https://nas.local:5000
       PUBLIC_URL: ${PUBLIC_URL:-}
-      UI_USER: ${UI_USER:-}
-      UI_PASS: ${UI_PASS:-}
+
+      # Required: key used to encrypt the admin password hash and stored
+      # secrets (PATs, SMTP creds). The container refuses to start without
+      # it. Generate with: openssl rand -hex 32
+      MASTER_KEY: ${MASTER_KEY:?MASTER_KEY is required — generate with "openssl rand -hex 32"}
 
       # Email notifications (optional)
       SMTP_HOST: ${SMTP_HOST:-}

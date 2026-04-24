@@ -57,6 +57,19 @@ export interface SmtpSettings {
   to?: string;
 }
 
+export interface UiSettings {
+  /** Human-readable UI username. Defaults to "admin" on a fresh install. */
+  username?: string;
+  /**
+   * When true, the middleware redirects every authenticated request to the
+   * account page until the user picks a new password. Set automatically on
+   * bootstrap (admin/admin) and cleared on successful change.
+   */
+  mustChangePassword?: boolean;
+  /** ISO timestamp of the last successful password change. */
+  passwordUpdatedAt?: string;
+}
+
 export interface PersistedSettings {
   github?: ProviderSettings;
   azureDevOps?: ProviderSettings;
@@ -68,6 +81,8 @@ export interface PersistedSettings {
   patExpiryWarnDays?: number;
   /** Logging verbosity surfaced in /logs UI. Overrides LOG_LEVEL env. */
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
+  /** Web-UI authentication settings (username + password metadata). */
+  ui?: UiSettings;
 }
 
 export interface PersistedSecrets {
@@ -75,6 +90,8 @@ export interface PersistedSecrets {
   'azureDevOps.pat'?: EncryptedSecret;
   'gitlab.pat'?: EncryptedSecret;
   'smtp.pass'?: EncryptedSecret;
+  /** bcrypt hash of the Web UI password (wrapped in the AES vault). */
+  'ui.passwordHash'?: EncryptedSecret;
 }
 
 const SETTINGS_FILE = 'settings.json';
@@ -225,6 +242,9 @@ export function patchSettings(patch: PersistedSettings): PersistedSettings {
   }
   if (patch.smtp !== undefined) {
     next.smtp = { ...(current.smtp ?? {}), ...patch.smtp };
+  }
+  if (patch.ui !== undefined) {
+    next.ui = { ...(current.ui ?? {}), ...patch.ui };
   }
 
   saveSettings(next);

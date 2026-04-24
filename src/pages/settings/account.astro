@@ -1,0 +1,127 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Card from '../../components/Card.astro';
+import { getUsername, mustChangePassword } from '../../lib/auth.js';
+
+const username = getUsername();
+const forceChange = mustChangePassword() || Astro.url.searchParams.get('forceChange') === '1';
+const passwordUpdatedAt = (await import('../../lib/settings.js'))
+  .loadSettings()
+  .ui?.passwordUpdatedAt ?? null;
+---
+<Layout
+  title="GitEcho — Account"
+  active="settings"
+  settingsActive={null}
+  pageTitle="Account"
+  breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Settings', href: '/settings' }, { label: 'Account' }]}
+>
+  {forceChange && (
+    <div class="alert alert-warning d-flex align-items-start" role="alert">
+      <i class="bi bi-shield-exclamation me-2 fs-5"></i>
+      <div>
+        <strong>Pick a new password to finish setup.</strong>
+        <div class="small">You can't navigate away until the default password is replaced.</div>
+      </div>
+    </div>
+  )}
+
+  <Card title="Change username & password" icon="bi-person-badge">
+    <div id="account-error" class="alert alert-danger small py-2 d-none" role="alert"></div>
+    <div id="account-ok" class="alert alert-success small py-2 d-none" role="status"></div>
+
+    <form id="account-form" autocomplete="off" novalidate>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label for="newUsername" class="form-label">Username</label>
+          <input type="text" class="form-control" id="newUsername" name="newUsername" value={username} autocomplete="username" required />
+        </div>
+        <div class="col-md-6 d-flex align-items-end">
+          <div class="small text-secondary">
+            {passwordUpdatedAt
+              ? `Last changed ${new Date(passwordUpdatedAt).toLocaleString()}`
+              : 'Password has never been changed from the default.'}
+          </div>
+        </div>
+      </div>
+
+      <hr class="my-4" />
+
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label for="currentPassword" class="form-label">Current password</label>
+          <input type="password" class="form-control" id="currentPassword" name="currentPassword" autocomplete="current-password" required />
+        </div>
+        <div class="col-md-4">
+          <label for="newPassword" class="form-label">New password</label>
+          <input type="password" class="form-control" id="newPassword" name="newPassword" autocomplete="new-password" minlength="8" required />
+          <div class="form-text">Minimum 8 characters. Must differ from the username.</div>
+        </div>
+        <div class="col-md-4">
+          <label for="newPasswordConfirm" class="form-label">Confirm new password</label>
+          <input type="password" class="form-control" id="newPasswordConfirm" name="newPasswordConfirm" autocomplete="new-password" minlength="8" required />
+        </div>
+      </div>
+
+      <div class="mt-4 d-flex justify-content-end">
+        <button type="submit" class="btn btn-primary" id="account-submit">
+          <i class="bi bi-check-circle me-1"></i>Save changes
+        </button>
+      </div>
+    </form>
+  </Card>
+
+  <script>
+    const form = document.getElementById('account-form') as HTMLFormElement;
+    const errBox = document.getElementById('account-error') as HTMLDivElement;
+    const okBox = document.getElementById('account-ok') as HTMLDivElement;
+    const submit = document.getElementById('account-submit') as HTMLButtonElement;
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      errBox.classList.add('d-none');
+      okBox.classList.add('d-none');
+
+      const fd = new FormData(form);
+      const newPassword = String(fd.get('newPassword') ?? '');
+      const confirm = String(fd.get('newPasswordConfirm') ?? '');
+      if (newPassword !== confirm) {
+        errBox.textContent = 'New password fields do not match.';
+        errBox.classList.remove('d-none');
+        return;
+      }
+
+      submit.disabled = true;
+      const original = submit.innerHTML;
+      submit.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving…';
+      try {
+        const res = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            currentPassword: fd.get('currentPassword'),
+            newPassword,
+            newUsername: fd.get('newUsername'),
+          }),
+        });
+        const data = await res.json() as { ok: boolean; error?: string };
+        if (!res.ok || !data.ok) {
+          errBox.textContent = data.error || `Save failed (HTTP ${res.status}).`;
+          errBox.classList.remove('d-none');
+          return;
+        }
+        okBox.textContent = 'Credentials updated.';
+        okBox.classList.remove('d-none');
+        form.reset();
+        // Refresh after a short moment so the forced-change banner disappears.
+        setTimeout(() => { window.location.href = '/settings'; }, 900);
+      } catch (e) {
+        errBox.textContent = (e as Error).message || 'Network error.';
+        errBox.classList.remove('d-none');
+      } finally {
+        submit.disabled = false;
+        submit.innerHTML = original;
+      }
+    });
+  </script>
+</Layout>

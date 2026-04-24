@@ -140,9 +140,7 @@ the environment.
 
 | Variable | Required | Description | Example |
 |---|---|---|---|
-| `MASTER_KEY` | Yes (for Settings UI secrets) | 32-byte key (hex or base64) used to encrypt PATs and the SMTP password at rest. Generate with `openssl rand -hex 32`. **If you lose it, all stored secrets are unrecoverable.** | `7f...` (64 hex chars) |
-| `UI_USER` | Recommended | Username for the Web UI HTTP Basic Auth. Auth is enforced only when both `UI_USER` and `UI_PASS` are set. | `admin` |
-| `UI_PASS` | Recommended | Password for the Web UI HTTP Basic Auth. | `change-me` |
+| `MASTER_KEY` | **Yes** | 32-byte key (hex or base64) used to encrypt the admin password hash, provider PATs and the SMTP password at rest. Generate with `openssl rand -hex 32`. **The container refuses to start without it, and if you lose it all stored secrets are unrecoverable.** | `7f...` (64 hex chars) |
 | `PUBLIC_URL` | Required behind a reverse proxy | Comma-separated list of external URLs under which the UI is reachable (scheme + host + port). Browser requests whose `Origin` matches an entry here are accepted for state-changing operations. Without this, requests through a proxy that rewrites the host (Synology DSM portal, Traefik, nginx, subdomains) may be rejected with **403**. | `https://gitecho.example.com,https://nas.local:5000` |
 | `DATA_DIR` | No | Override the data mount path (SQLite database, sync metadata). | `/data` |
 | `CONFIG_DIR` | No | Override the config mount path (`repos.txt`, `settings.json`, `secrets.json`). | `/config` |
@@ -252,11 +250,32 @@ Configuration precedence is **builtin defaults < environment variables < `settin
 
 ### Security notes
 
-- HTTP Basic Auth is plaintext on the wire. **Always put GitEcho behind a TLS-terminating reverse proxy** (Caddy, nginx, Traefik, …) when exposing it beyond `localhost`.
-- If `UI_USER`/`UI_PASS` are unset, the Settings UI is reachable without authentication and a warning is logged at startup.
-- When running behind a reverse proxy that rewrites the host (Synology DSM portal, subdomains, etc.), set `PUBLIC_URL` to the external URL(s). Otherwise add/remove/save actions from the UI may fail with `403 Forbidden` because the browser's `Origin` header does not match the container's internal host.
-- Losing `MASTER_KEY` means losing every PAT and SMTP password stored via the UI — back it up alongside your other secrets.
-- The container is no longer strictly immutable when you use the Settings UI: state lives in `/config` and `/data`, both of which must be persistent volumes.
+- **Default credentials are `admin` / `admin`.** On first start GitEcho
+  bootstraps an admin account and marks it as *must change password* — you
+  are redirected to the change-password screen and cannot navigate away
+  until a new password (min. 8 characters, different from the username) is
+  set. The bcrypt hash is stored in the encrypted `/config/secrets.json`
+  vault, never on disk in plaintext and never in env vars.
+- Sessions are cookie-based: `HttpOnly`, `SameSite=Strict`, `Secure` when
+  served over HTTPS, HMAC-signed with `MASTER_KEY`, sliding 7-day expiry.
+  Restarting the container invalidates all sessions.
+- **Always put GitEcho behind a TLS-terminating reverse proxy** (Caddy,
+  nginx, Traefik, …) when exposing it beyond `localhost`. The login form
+  sends credentials over HTTP otherwise.
+- When running behind a reverse proxy that rewrites the host (Synology DSM
+  portal, subdomains, etc.), set `PUBLIC_URL` to the external URL(s).
+  Otherwise add/remove/save actions from the UI may fail with `403
+  Forbidden` because the browser's `Origin` header does not match the
+  container's internal host.
+- **Forgot your password?** There is no email reset. Stop the container,
+  delete the `ui.passwordHash` entry from `/config/secrets.json` (or the
+  entire file — you'll lose PATs/SMTP password too), and restart: GitEcho
+  will re-bootstrap `admin` / `admin`.
+- Losing `MASTER_KEY` means losing every credential stored via the UI
+  (admin password included) — back it up alongside your other secrets.
+- The container is no longer strictly immutable when you use the Settings
+  UI: state lives in `/config` and `/data`, both of which must be
+  persistent volumes.
 
 ## Docker Setup
 
@@ -267,16 +286,16 @@ docker run -d \
   --name gitecho \
   -p 3000:3000 \
   -e MASTER_KEY="$(openssl rand -hex 32)" \
-  -e UI_USER=admin \
-  -e UI_PASS=change-me \
   -v gitecho-data:/data \
   -v gitecho-config:/config \
   -v gitecho-backups:/backups \
   gitecho:latest
 ```
 
-Then open <http://localhost:3000/settings> and configure provider PATs,
-SMTP, backup mode, and cron schedule from the UI.
+Then open <http://localhost:3000>, sign in with the default credentials
+**`admin` / `admin`** and you will be forced to choose a new password
+before anything else loads. After that, configure provider PATs, SMTP,
+backup mode, and cron schedule from the Settings UI.
 
 ### Docker Compose
 
@@ -289,13 +308,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Encrypts PATs + SMTP password stored via the Settings UI.
-      # Generate once with: openssl rand -hex 32
+      # Encrypts the admin password hash, PATs and SMTP password stored
+      # via the Settings UI. Required — the container refuses to start
+      # without it. Generate once with: openssl rand -hex 32
       MASTER_KEY: "replace-with-64-hex-chars"
-
-      # HTTP Basic Auth for the Web UI (strongly recommended)
-      UI_USER: admin
-      UI_PASS: change-me
 
       # Required when running behind a reverse proxy that rewrites the host.
       # PUBLIC_URL: "https://gitecho.example.com"

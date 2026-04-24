@@ -1,15 +1,17 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import { isMasterKeyConfigured } from '../../lib/secrets.js';
+import { mustChangePassword } from '../../lib/auth.js';
 
 const masterKeyOk = isMasterKeyConfigured();
-const uiAuthOn = Boolean(process.env.UI_USER && process.env.UI_PASS);
+const needsPasswordChange = mustChangePassword();
 
 const tiles = [
   { href: '/settings/general', icon: 'bi-sliders', title: 'General', desc: 'Backup mode, cron schedule, manual trigger.', color: 'primary' },
   { href: '/settings/providers', icon: 'bi-key', title: 'Providers', desc: 'GitHub, Azure DevOps & GitLab PAT tokens, expirations, auto-discovery, test connections.', color: 'info' },
   { href: '/settings/repos', icon: 'bi-list-ul', title: 'Repositories list', desc: 'Add or remove URLs in repos.txt.', color: 'success' },
   { href: '/settings/smtp', icon: 'bi-envelope', title: 'SMTP / Notifications', desc: 'Email setup with a test-send button.', color: 'warning' },
+  { href: '/settings/account', icon: 'bi-person-badge', title: 'Account', desc: 'Change your username and password.', color: 'secondary' },
 ];
 ---
 <Layout
@@ -29,19 +31,19 @@ const tiles = [
     </div>
   )}
 
-  {!uiAuthOn && (
-    <div class="alert alert-danger d-flex align-items-start" role="alert">
-      <i class="bi bi-shield-x me-2 fs-5"></i>
+  {needsPasswordChange && (
+    <div class="alert alert-warning d-flex align-items-start" role="alert">
+      <i class="bi bi-exclamation-triangle me-2 fs-5"></i>
       <div>
-        <strong>The web UI is not authenticated.</strong>
-        <div class="small">Set <code>UI_USER</code> and <code>UI_PASS</code> environment variables to require HTTP Basic auth on every request.</div>
+        <strong>You're still using the default password.</strong>
+        <div class="small">Head to <a href="/settings/account">Account</a> and pick a new password before exposing this install to the network.</div>
       </div>
     </div>
   )}
 
   <div class="row">
     {tiles.map((t) => (
-      <div class="col-12 col-sm-6 col-lg-3">
+      <div class="col-12 col-sm-6 col-lg-4">
         <a href={t.href} class="card h-100 text-decoration-none text-reset shadow-sm setting-tile">
           <div class="card-body text-center">
             <div class={`display-5 mb-2 text-${t.color}`}><i class={`bi ${t.icon}`}></i></div>

@@ -99,6 +99,23 @@ fi
 
 echo "GitEcho starting..."
 
+# Fail fast when the secret-encryption key is missing. Without it the
+# web UI cannot store the admin password hash or provider credentials,
+# so the container is unable to complete a first-run bootstrap.
+if [ -z "${MASTER_KEY:-}" ]; then
+  echo "" >&2
+  echo "ERROR: MASTER_KEY is not set." >&2
+  echo "GitEcho stores the admin password hash and provider PATs" >&2
+  echo "encrypted with this key and refuses to start without it." >&2
+  echo "" >&2
+  echo "Generate one on the host with:" >&2
+  echo "  openssl rand -hex 32" >&2
+  echo "" >&2
+  echo "Then add it to your .env / docker-compose.yml as MASTER_KEY=..." >&2
+  echo "" >&2
+  exit 1
+fi
+
 # Ensure directories exist
 mkdir -p /data /config /backups
 

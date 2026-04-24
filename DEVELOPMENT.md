@@ -45,13 +45,9 @@ DATA_DIR=./.dev/data
 CONFIG_DIR=./.dev/config
 BACKUPS_DIR=./.dev/backups
 
-# Required to use the Settings UI for storing PAT / SMTP secrets.
-# Generate with: openssl rand -hex 32
+# Required — encrypts the admin password hash, PATs and SMTP secrets.
+# GitEcho refuses to start without it. Generate with: openssl rand -hex 32
 MASTER_KEY=
-
-# Recommended: protect the dev UI with Basic Auth
-UI_USER=dev
-UI_PASS=dev
 
 # Backup behavior
 BACKUP_MODE=option1
@@ -96,7 +92,11 @@ Serves the UI at <http://localhost:3000> with HMR. The dev server reads `.env.lo
 
 If you leave `DATA_DIR`, `CONFIG_DIR`, and `BACKUPS_DIR` unset, GitEcho defaults to `.dev/data`, `.dev/config`, and `.dev/backups` on local runs.
 
-When `UI_USER`/`UI_PASS` are set, the browser prompts for Basic Auth on the first request.
+On first boot GitEcho bootstraps an `admin` / `admin` account and forces a
+password change through `/login` → `/settings/account`. The new password is
+stored (bcrypt-hashed) in `.dev/config/secrets.json`. To reset during
+development, just delete that file and reload — admin/admin is seeded
+again.
 
 ### Terminal 2 — worker (scheduler)
 
@@ -129,10 +129,11 @@ npm run worker    # runs the built worker
 ## 4. Verifying it works
 
 1. **Open the UI** at <http://localhost:3000> — you should see the Dashboard with empty stats.
-2. **Settings landing** (`/settings`) shows two banners:
-   - Red banner if `UI_USER`/`UI_PASS` are unset.
-   - Yellow banner if `MASTER_KEY` is unset.
-   Both should be absent if you followed step 2.
+2. **Settings landing** (`/settings`) shows a yellow banner if you are still
+   signed in as the default `admin` / `admin` — following the banner link
+   opens the change-password page. A second yellow banner warns when
+   `MASTER_KEY` is unset (in dev; in a container, startup would have
+   aborted).
 3. **Add a repo** at `/settings/repos` — confirm it appears in `.dev/config/repos.txt`.
 4. **Add a PAT** at `/settings/providers` — confirm:
    - `.dev/config/secrets.json` is created with mode `0600` and contains `{iv,tag,ct}` blobs (not the plaintext PAT).
@@ -153,20 +154,27 @@ There are currently **no automated tests**. The `check` + `build` combo is the c
 
 ## 6. Useful manual API checks
 
-With Basic Auth enabled, pass `-u dev:dev`:
+Obtain a session cookie first, then reuse it on subsequent requests:
 
 ```bash
-# List configured repos
-curl -s -u dev:dev http://localhost:3000/api/repos | jq
+# 1. Sign in and save the Set-Cookie value into cookies.txt
+curl -s -c cookies.txt -X POST http://localhost:3000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin"}'
+
+# 2. Reuse the cookie jar for any subsequent API call
+curl -s -b cookies.txt http://localhost:3000/api/repos | jq
 
 # Add a repo
-curl -s -u dev:dev -X POST http://localhost:3000/api/repos \
+curl -s -b cookies.txt -X POST http://localhost:3000/api/repos \
   -H 'Content-Type: application/json' \
+  -H 'Origin: http://localhost:3000' \
   -d '{"url":"https://github.com/octocat/Hello-World"}'
 
 # Test GitHub PAT (uses stored token unless you provide one)
-curl -s -u dev:dev -X POST http://localhost:3000/api/test/github -d '{}' \
-  -H 'Content-Type: application/json'
+curl -s -b cookies.txt -X POST http://localhost:3000/api/test/github -d '{}' \
+  -H 'Content-Type: application/json' \
+  -H 'Origin: http://localhost:3000'
 
 # Test GitLab PAT (uses stored token + host unless you provide them)
 curl -s -u dev:dev -X POST http://localhost:3000/api/test/gitlab -d '{}' \
@@ -196,7 +204,7 @@ Restart `npm run worker:dev` afterwards so the database is recreated.
 ```
 src/
   layouts/Layout.astro          AdminLTE 4 shell (sidebar + topbar + dark mode)
-  middleware.ts                 Basic Auth + cheap CSRF
+  middleware.ts                 Session-cookie auth + Origin-based CSRF
   components/                   reusable Astro components (Sidebar, Topbar,
                                   SmallBox, Card, Toasts)
   scripts/                      client-side TS bundled by Astro
@@ -371,7 +379,8 @@ docker compose up -d
 | Symptom | Likely cause / fix |
 |---|---|
 | `MASTER_KEY environment variable is required` from a Save button | `.env.local` missing `MASTER_KEY`; restart `npm run dev` after editing. |
-| Browser keeps re-prompting for credentials | `UI_USER` / `UI_PASS` mismatch; use `localhost` not `127.0.0.1` to avoid stale cached creds. |
+| Login redirects back to `/login` with `error=invalid` | Wrong username / password. Default bootstrap is `admin` / `admin`. To reset, stop the dev server and delete `.dev/config/secrets.json`. |
+| "Password change required" blocks everything | Expected \u2014 finish the forced first-login change at `/settings/account`. |
 | Worker logs `Another process is already running a backup` | A previous run crashed and left `.dev/data/.backup.lock`; the lock self-heals once the recorded PID is no longer alive (uses `process.kill(pid, 0)`). Delete the file manually if needed. |
 | `gh: command not found` on Test connection | Install GitHub CLI (`brew install gh`). The check exec's the `gh` binary directly. |
 | `glab: command not found` inside the container / during `glab auth status` | The Dockerfile installs `glab` via the official tarball release; rebuild the image after pulling changes. Locally the Astro server uses the REST API directly, so `glab` is optional for development. |

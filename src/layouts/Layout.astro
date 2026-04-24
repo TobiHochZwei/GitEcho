@@ -6,6 +6,7 @@ import 'admin-lte/dist/css/adminlte.min.css';
 import Sidebar from '../components/Sidebar.astro';
 import Topbar from '../components/Topbar.astro';
 import Toasts from '../components/Toasts.astro';
+import { getUsername } from '../lib/auth.js';
 
 interface Crumb { label: string; href?: string; }
 interface Props {
@@ -28,7 +29,7 @@ const {
   backupMode = '',
 } = Astro.props;
 
-const user = process.env.UI_USER || null;
+const user = getUsername();
 ---
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">

@@ -93,7 +93,7 @@ export function setLevel(level: LogLevel | undefined): void {
 
 function collectSecrets(): string[] {
   const values = new Set<string>();
-  for (const key of ['GITHUB_PAT', 'AZUREDEVOPS_PAT', 'GITLAB_PAT', 'MASTER_KEY', 'SMTP_PASS', 'UI_PASS']) {
+  for (const key of ['GITHUB_PAT', 'AZUREDEVOPS_PAT', 'GITLAB_PAT', 'MASTER_KEY', 'SMTP_PASS']) {
     const v = process.env[key];
     if (v && v.length >= 6) values.add(v);
   }

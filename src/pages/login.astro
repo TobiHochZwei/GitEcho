@@ -1,0 +1,94 @@
+---
+import 'bootstrap/dist/css/bootstrap.min.css';
+import 'bootstrap-icons/font/bootstrap-icons.css';
+
+const signedOut = Astro.url.searchParams.get('signedOut') === '1';
+const redirect = Astro.url.searchParams.get('redirect') ?? '/';
+---
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in — GitEcho</title>
+</head>
+<body class="bg-body-tertiary">
+  <main class="d-flex align-items-center justify-content-center min-vh-100 p-3">
+    <div class="card shadow-sm" style="max-width: 420px; width: 100%;">
+      <div class="card-body p-4">
+        <div class="text-center mb-4">
+          <i class="bi bi-hdd-stack fs-1 text-primary"></i>
+          <h1 class="h4 mt-2 mb-0">GitEcho</h1>
+          <div class="text-secondary small">Repository backup tool</div>
+        </div>
+
+        {signedOut && (
+          <div class="alert alert-success small py-2 mb-3" role="status">
+            <i class="bi bi-check-circle me-1"></i>Signed out.
+          </div>
+        )}
+
+        <div id="login-error" class="alert alert-danger small py-2 mb-3 d-none" role="alert"></div>
+
+        <form id="login-form" autocomplete="on" novalidate>
+          <div class="mb-3">
+            <label for="username" class="form-label">Username</label>
+            <input type="text" class="form-control" id="username" name="username" autocomplete="username" required autofocus />
+          </div>
+          <div class="mb-3">
+            <label for="password" class="form-label">Password</label>
+            <input type="password" class="form-control" id="password" name="password" autocomplete="current-password" required />
+          </div>
+          <input type="hidden" id="redirect" value={redirect} />
+          <button type="submit" class="btn btn-primary w-100" id="login-submit">
+            <i class="bi bi-box-arrow-in-right me-1"></i>Sign in
+          </button>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById('login-form') as HTMLFormElement;
+    const errBox = document.getElementById('login-error') as HTMLDivElement;
+    const submit = document.getElementById('login-submit') as HTMLButtonElement;
+    const redirect = (document.getElementById('redirect') as HTMLInputElement).value || '/';
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      errBox.classList.add('d-none');
+      submit.disabled = true;
+      const original = submit.innerHTML;
+      submit.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Signing in…';
+      try {
+        const fd = new FormData(form);
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: fd.get('username'),
+            password: fd.get('password'),
+          }),
+        });
+        const data = await res.json() as { ok: boolean; error?: string; mustChangePassword?: boolean };
+        if (!res.ok || !data.ok) {
+          errBox.textContent = data.error || `Sign-in failed (HTTP ${res.status}).`;
+          errBox.classList.remove('d-none');
+          return;
+        }
+        if (data.mustChangePassword) {
+          window.location.href = '/settings/account?forceChange=1';
+        } else {
+          window.location.href = redirect.startsWith('/') ? redirect : '/';
+        }
+      } catch (e) {
+        errBox.textContent = (e as Error).message || 'Network error.';
+        errBox.classList.remove('d-none');
+      } finally {
+        submit.disabled = false;
+        submit.innerHTML = original;
+      }
+    });
+  </script>
+</body>
+</html>

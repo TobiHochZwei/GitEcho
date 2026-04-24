@@ -1,16 +1,28 @@
-// HTTP Basic Auth middleware for the Astro web UI.
-// When UI_USER and UI_PASS are both set, every request must present matching
-// credentials. When unset, the UI is open and a warning is logged on the
-// first request so the operator notices.
+// Web UI authentication middleware.
+//
+// - Enforces that MASTER_KEY is configured (aborts the request with a clear
+//   message otherwise — pairs with the entrypoint hard-fail).
+// - Bootstraps default admin/admin credentials on first boot.
+// - Validates the signed `gitecho_sid` session cookie, redirecting HTML
+//   requests to /login and returning 401 for API requests.
+// - Applies CSRF defence on non-GET/HEAD requests via Origin-header check.
+// - Forces users through /settings/account when mustChangePassword is set.
+// - Adds a small set of hardening headers to every response.
 
 import { defineMiddleware } from 'astro:middleware';
-import { timingSafeEqual } from 'node:crypto';
 import { logger } from './lib/logger.js';
 import { loadConfig } from './lib/config.js';
 import { initDatabase } from './lib/database.js';
+import { isMasterKeyConfigured } from './lib/secrets.js';
+import {
+  destroySessionByCookie,
+  ensureCredentialsBootstrapped,
+  mustChangePassword,
+  touchSession,
+} from './lib/auth.js';
 
-let warnedOpen = false;
 let dbInitialized = false;
+let credentialsBootstrapped = false;
 
 function ensureDatabaseInitialized(): void {
   if (dbInitialized) return;
@@ -23,21 +35,14 @@ function ensureDatabaseInitialized(): void {
   }
 }
 
-function constantTimeEqual(a: string, b: string): boolean {
-  const aBuf = Buffer.from(a);
-  const bBuf = Buffer.from(b);
-  if (aBuf.length !== bBuf.length) return false;
-  return timingSafeEqual(aBuf, bBuf);
-}
-
-function unauthorizedResponse(): Response {
-  return new Response('Authentication required', {
-    status: 401,
-    headers: {
-      'WWW-Authenticate': 'Basic realm="GitEcho", charset="UTF-8"',
-      'Content-Type': 'text/plain; charset=utf-8',
-    },
-  });
+function bootstrapCredentialsOnce(): void {
+  if (credentialsBootstrapped) return;
+  try {
+    ensureCredentialsBootstrapped();
+    credentialsBootstrapped = true;
+  } catch (e) {
+    logger.error(`[middleware] Failed to bootstrap credentials: ${(e as Error).message}`);
+  }
 }
 
 /** Parse PUBLIC_URL into a set of normalized allowed origins. */
@@ -58,7 +63,7 @@ function allowedOrigins(): Set<string> {
 }
 
 function isOriginAllowed(origin: string | null, requestUrl: string): boolean {
-  if (!origin) return true; // no Origin header (e.g. curl, older browser on GET-like POST)
+  if (!origin) return true; // no Origin header (e.g. curl, some proxies on same-origin POST)
   try {
     const o = new URL(origin);
     const normalized = `${o.protocol}//${o.host}`;
@@ -73,62 +78,167 @@ function isOriginAllowed(origin: string | null, requestUrl: string): boolean {
   }
 }
 
-export const onRequest = defineMiddleware(async (context, next) => {
-  ensureDatabaseInitialized();
+/** Paths that are reachable without an authenticated session. */
+const PUBLIC_PATHS = new Set<string>([
+  '/login',
+  '/api/auth/login',
+  '/api/auth/logout',
+]);
 
-  const expectedUser = process.env.UI_USER;
-  const expectedPass = process.env.UI_PASS;
+/**
+ * Prefixes for resources the server serves without auth (static assets emitted
+ * by Astro). Keeps /login usable before the browser has a session cookie.
+ */
+const PUBLIC_PREFIXES = ['/_astro/', '/favicon'];
 
-  if (!expectedUser || !expectedPass) {
-    if (!warnedOpen) {
-      warnedOpen = true;
-      logger.warn(
-        '[auth] UI_USER / UI_PASS are not set — the GitEcho web UI is unauthenticated. ' +
-          'Anyone with network access can view repos and (if MASTER_KEY is set) read settings.',
-      );
-    }
-    return next();
+function isPublicPath(pathname: string): boolean {
+  if (PUBLIC_PATHS.has(pathname)) return true;
+  return PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
+/**
+ * Paths that remain reachable even while mustChangePassword is true — they
+ * let the user complete the password change without getting redirected to
+ * themselves. Everything else redirects to /settings/account.
+ */
+const FORCE_CHANGE_ALLOWLIST = new Set<string>([
+  '/settings/account',
+  '/api/auth/change-password',
+  '/api/auth/logout',
+]);
+
+function addSecurityHeaders(response: Response, secure: boolean): Response {
+  const h = response.headers;
+  if (!h.has('X-Content-Type-Options')) h.set('X-Content-Type-Options', 'nosniff');
+  if (!h.has('X-Frame-Options')) h.set('X-Frame-Options', 'DENY');
+  if (!h.has('Referrer-Policy')) h.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (secure && !h.has('Strict-Transport-Security')) {
+    h.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
+  return response;
+}
 
-  const header = context.request.headers.get('authorization');
-  if (!header || !header.toLowerCase().startsWith('basic ')) {
-    return unauthorizedResponse();
-  }
-
-  let decoded: string;
+function requestIsSecure(request: Request): boolean {
   try {
-    decoded = Buffer.from(header.slice(6).trim(), 'base64').toString('utf-8');
+    if (new URL(request.url).protocol === 'https:') return true;
   } catch {
-    return unauthorizedResponse();
+    /* ignore */
+  }
+  const xfp = request.headers.get('x-forwarded-proto');
+  if (xfp && xfp.split(',')[0].trim().toLowerCase() === 'https') return true;
+  return false;
+}
+
+function htmlWantsRedirect(request: Request, pathname: string): boolean {
+  if (pathname.startsWith('/api/')) return false;
+  const accept = request.headers.get('accept') ?? '';
+  return accept.includes('text/html') || request.method === 'GET';
+}
+
+function redirectToLogin(pathname: string, search: string): Response {
+  const location = `/login?redirect=${encodeURIComponent(pathname + search)}`;
+  return new Response(null, { status: 302, headers: { Location: location } });
+}
+
+function unauthorizedJson(): Response {
+  return new Response(JSON.stringify({ ok: false, error: 'Not authenticated.' }), {
+    status: 401,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function masterKeyMissingResponse(pathname: string): Response {
+  const msg =
+    'MASTER_KEY environment variable is required. ' +
+    'Generate one with `openssl rand -hex 32` and restart the container.';
+  if (pathname.startsWith('/api/')) {
+    return new Response(JSON.stringify({ ok: false, error: msg }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  return new Response(
+    `<!doctype html><meta charset="utf-8"><title>GitEcho — misconfigured</title>` +
+      `<style>body{font:16px/1.5 system-ui;padding:3rem;max-width:44rem;margin:auto;background:#111;color:#eee}` +
+      `code{background:#222;padding:.1rem .4rem;border-radius:.25rem}h1{color:#f66}</style>` +
+      `<h1>GitEcho cannot start</h1><p>${msg}</p>`,
+    {
+      status: 503,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    },
+  );
+}
+
+export const onRequest = defineMiddleware(async (context, next) => {
+  const url = new URL(context.request.url);
+  const pathname = url.pathname;
+  const secure = requestIsSecure(context.request);
+
+  // Hard fail if the vault key is not configured. Without it we cannot store
+  // the password hash or provider PATs, so the entire UI is non-functional.
+  if (!isMasterKeyConfigured()) {
+    return addSecurityHeaders(masterKeyMissingResponse(pathname), secure);
   }
 
-  const colon = decoded.indexOf(':');
-  if (colon < 0) return unauthorizedResponse();
+  ensureDatabaseInitialized();
+  bootstrapCredentialsOnce();
 
-  const user = decoded.slice(0, colon);
-  const pass = decoded.slice(colon + 1);
-
-  const userOk = constantTimeEqual(user, expectedUser);
-  const passOk = constantTimeEqual(pass, expectedPass);
-  if (!userOk || !passOk) {
-    return unauthorizedResponse();
-  }
-
-  // CSRF mitigation for state-changing requests: accept only requests whose
-  // Origin matches the request host OR is explicitly listed in PUBLIC_URL.
-  // This keeps the UI working behind reverse proxies (Synology DSM portal,
-  // Traefik, nginx) while still rejecting cross-site writes.
+  // CSRF: reject cross-site writes before touching the session.
   const method = context.request.method.toUpperCase();
   if (method !== 'GET' && method !== 'HEAD') {
     const origin = context.request.headers.get('origin');
     if (!isOriginAllowed(origin, context.request.url)) {
       logger.warn(
-        `[auth] Rejected ${method} ${new URL(context.request.url).pathname} — origin ${origin ?? 'none'} not allowed. ` +
+        `[auth] Rejected ${method} ${pathname} — origin ${origin ?? 'none'} not allowed. ` +
           'Set PUBLIC_URL to the URL(s) your browser uses.',
       );
-      return new Response('Cross-site requests are not allowed', { status: 403 });
+      return addSecurityHeaders(
+        new Response('Cross-site requests are not allowed', { status: 403 }),
+        secure,
+      );
     }
   }
 
-  return next();
+  // Public routes (login page + login/logout APIs + static assets) don't
+  // require an authenticated session.
+  if (isPublicPath(pathname)) {
+    const res = await next();
+    return addSecurityHeaders(res, secure);
+  }
+
+  // Validate the session cookie.
+  const cookieHeader = context.request.headers.get('cookie');
+  const session = touchSession(cookieHeader);
+  if (!session) {
+    // Defensively clear any stale/invalid cookie the browser sent.
+    destroySessionByCookie(cookieHeader);
+    if (htmlWantsRedirect(context.request, pathname)) {
+      return addSecurityHeaders(redirectToLogin(pathname, url.search), secure);
+    }
+    return addSecurityHeaders(unauthorizedJson(), secure);
+  }
+
+  // Force the default-password user through the change flow.
+  if (mustChangePassword() && !FORCE_CHANGE_ALLOWLIST.has(pathname)) {
+    if (pathname.startsWith('/api/')) {
+      return addSecurityHeaders(
+        new Response(
+          JSON.stringify({ ok: false, error: 'Password change required.' }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } },
+        ),
+        secure,
+      );
+    }
+    return addSecurityHeaders(
+      new Response(null, {
+        status: 302,
+        headers: { Location: '/settings/account?forceChange=1' },
+      }),
+      secure,
+    );
+  }
+
+  context.locals.user = { username: session.username };
+  const res = await next();
+  return addSecurityHeaders(res, secure);
 });

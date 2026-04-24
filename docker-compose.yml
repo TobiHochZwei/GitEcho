@@ -26,6 +26,11 @@ services:
       BACKUP_MODE: ${BACKUP_MODE:-option1}
       CRON_SCHEDULE: ${CRON_SCHEDULE:-0 2 * * *}
 
+      # Container timezone (IANA name, e.g. Europe/Berlin, America/New_York).
+      # Affects log timestamps, cron schedules and `Date` values inside the
+      # app. Defaults to UTC.
+      TZ: ${TZ:-UTC}
+
       # UI reverse-proxy origin. When the UI is served under a different
       # hostname/port than the container listens on (Synology DSM portal,
       # Traefik, nginx, subdomain, …) list the public URLs here so

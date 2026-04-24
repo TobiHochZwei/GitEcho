@@ -22,6 +22,18 @@ const publicUrls: { value: string; valid: boolean; normalized: string | null }[]
       return { value, valid: false, normalized: null };
     }
   });
+
+// Container timezone. Node picks up the TZ env var natively — we also show
+// the effective resolved name (via Intl) and the current server time so users
+// can verify their setting took effect.
+const tzEnv = process.env.TZ ?? '';
+const tzResolved = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+const serverTimeNow = new Date().toLocaleString('en-GB', {
+  timeZone: tzResolved,
+  hour12: false,
+  dateStyle: 'medium',
+  timeStyle: 'long',
+});
 ---
 <Layout
   title="GitEcho — Settings · General"
@@ -57,6 +69,35 @@ const publicUrls: { value: string; valid: boolean; normalized: string | null }[]
           </div>
           <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save</button>
         </form>
+      </Card>
+    </div>
+
+    <div class="col-12 col-lg-8">
+      <Card title="Container timezone (TZ)" icon="bi-globe2">
+        <p class="small text-secondary mb-2">
+          Controls log timestamps, cron schedules and <code>Date</code> values
+          inside the app. Configure via the <code>TZ</code> environment
+          variable (IANA name, e.g. <code>Europe/Berlin</code>). Restart the
+          container to apply changes.
+        </p>
+        <ul class="list-group">
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span><code>TZ</code> env var</span>
+            {tzEnv ? (
+              <code>{tzEnv}</code>
+            ) : (
+              <span class="badge text-bg-secondary">not set (defaults to UTC)</span>
+            )}
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>Resolved timezone</span>
+            <span class="badge text-bg-info"><i class="bi bi-geo-alt me-1"></i>{tzResolved}</span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>Current server time</span>
+            <span class="font-monospace small">{serverTimeNow}</span>
+          </li>
+        </ul>
       </Card>
     </div>
 

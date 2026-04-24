@@ -10,6 +10,20 @@ set -e
 #   /app/entrypoint.sh: line 21: /config/repos.txt: Permission denied
 # ---------------------------------------------------------------------------
 if [ "$(id -u)" = "0" ]; then
+  # Apply the requested timezone (IANA name, e.g. "Europe/Berlin") while we
+  # still have root. Node picks up the TZ env var natively, but writing
+  # /etc/localtime + /etc/timezone keeps system tools (logs, ls -l, git)
+  # consistent. Falls back silently when tzdata is missing or TZ is invalid.
+  if [ -n "${TZ:-}" ]; then
+    if [ -f "/usr/share/zoneinfo/${TZ}" ]; then
+      ln -snf "/usr/share/zoneinfo/${TZ}" /etc/localtime
+      echo "${TZ}" > /etc/timezone
+      echo "Timezone set to ${TZ}" >&2
+    else
+      echo "Warning: TZ='${TZ}' is not a valid zoneinfo name; ignoring." >&2
+    fi
+  fi
+
   # Optional PUID/PGID remap (LinuxServer.io convention) so bind-mounted
   # host directories stay accessible from the host as the invoking user.
   if [ -n "${PGID:-}" ] && [ "${PGID}" != "$(id -g gitecho)" ]; then

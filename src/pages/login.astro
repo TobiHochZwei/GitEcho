@@ -13,11 +13,11 @@ const redirect = Astro.url.searchParams.get('redirect') ?? '/';
   <title>Sign in — GitEcho</title>
 </head>
 <body class="bg-body-tertiary">
-  <main class="d-flex align-items-center justify-content-center min-vh-100 p-3">
+  <main class="d-flex flex-column align-items-center justify-content-center min-vh-100 p-3">
     <div class="card shadow-sm" style="max-width: 420px; width: 100%;">
       <div class="card-body p-4">
         <div class="text-center mb-4">
-          <i class="bi bi-hdd-stack fs-1 text-primary"></i>
+          <img src="/logo.svg" alt="GitEcho" class="login-logo mb-2" />
           <h1 class="h4 mt-2 mb-0">GitEcho</h1>
           <div class="text-secondary small">Repository backup tool</div>
         </div>
@@ -46,7 +46,33 @@ const redirect = Astro.url.searchParams.get('redirect') ?? '/';
         </form>
       </div>
     </div>
+
+    <div class="supported-by text-secondary small mt-4 d-flex justify-content-center align-items-center gap-2">
+      <span>Supported by</span>
+      <a
+        href="https://github.com/TobiHochZwei"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="TobiHochZwei"
+        class="d-inline-flex align-items-center text-decoration-none"
+      >
+        <img src="/tobihochzwei-logo.png" alt="TobiHochZwei" class="supported-logo" />
+      </a>
+    </div>
   </main>
+
+  <style>
+    .login-logo {
+      height: 64px;
+      width: auto;
+    }
+    .supported-by { font-size: 0.85rem; }
+    .supported-logo {
+      height: 22px;
+      width: auto;
+      object-fit: contain;
+    }
+  </style>
 
   <script>
     const form = document.getElementById('login-form') as HTMLFormElement;

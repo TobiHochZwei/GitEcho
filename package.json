@@ -22,7 +22,7 @@
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
     "chart.js": "^4.5.1",
-    "cronstrue": "^2.59.0",
+    "cronstrue": "^3.14.0",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.5"
   },

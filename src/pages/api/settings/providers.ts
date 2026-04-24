@@ -19,6 +19,7 @@ interface ProviderInputCommon {
 interface ProvidersInput {
   github?: ProviderInputCommon;
   azureDevOps?: ProviderInputCommon & { org?: string };
+  gitlab?: ProviderInputCommon & { host?: string };
 }
 
 function sanitizeFilters(input: unknown): DiscoveryFilterSettings | undefined {
@@ -66,6 +67,14 @@ export const PUT: APIRoute = async ({ request }) => {
       patExpires?: string;
       autoDiscover?: boolean;
       org?: string;
+      autoCleanupReposTxt?: boolean;
+      notifyOnNewRepo?: boolean;
+      filters?: DiscoveryFilterSettings;
+    };
+    gitlab?: {
+      patExpires?: string;
+      autoDiscover?: boolean;
+      host?: string;
       autoCleanupReposTxt?: boolean;
       notifyOnNewRepo?: boolean;
       filters?: DiscoveryFilterSettings;
@@ -130,6 +139,35 @@ export const PUT: APIRoute = async ({ request }) => {
       writeSecret('azureDevOps.pat', body.azureDevOps.pat);
     }
     providersToDiscover.push('azureDevOps');
+  }
+
+  if (body.gitlab) {
+    settingsPatch.gitlab = {};
+    if (body.gitlab.patExpires !== undefined)
+      settingsPatch.gitlab.patExpires = body.gitlab.patExpires || undefined;
+    if (body.gitlab.host !== undefined)
+      settingsPatch.gitlab.host = body.gitlab.host || undefined;
+    if (body.gitlab.autoDiscover !== undefined)
+      settingsPatch.gitlab.autoDiscover = Boolean(body.gitlab.autoDiscover);
+    if (body.gitlab.autoCleanupReposTxt !== undefined)
+      settingsPatch.gitlab.autoCleanupReposTxt = Boolean(body.gitlab.autoCleanupReposTxt);
+    if (body.gitlab.notifyOnNewRepo !== undefined)
+      settingsPatch.gitlab.notifyOnNewRepo = Boolean(body.gitlab.notifyOnNewRepo);
+    if (body.gitlab.filters !== undefined)
+      settingsPatch.gitlab.filters = sanitizeFilters(body.gitlab.filters);
+
+    if (body.gitlab.clear) {
+      writeSecret('gitlab.pat', undefined);
+    } else if (body.gitlab.pat) {
+      if (!isMasterKeyConfigured()) {
+        return new Response(
+          JSON.stringify({ error: 'MASTER_KEY environment variable is required to save secrets.' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      writeSecret('gitlab.pat', body.gitlab.pat);
+    }
+    providersToDiscover.push('gitlab');
   }
 
   patchSettings(settingsPatch);

@@ -3,7 +3,7 @@ import { runDiscovery } from '../../../../lib/discovery.js';
 import type { DiscoveryProvider } from '../../../../lib/discovery.js';
 
 interface DiscoverInput {
-  provider?: 'github' | 'azureDevOps' | 'all';
+  provider?: 'github' | 'azureDevOps' | 'gitlab' | 'all';
 }
 
 export const POST: APIRoute = async ({ request }) => {

@@ -11,14 +11,15 @@ This document describes how to run, configure, and test GitEcho on a developer m
 | `git` | any recent | Used at runtime to clone/pull repos. |
 | GitHub CLI (`gh`) | ≥ 2.40 | Required only if you backup GitHub repos. Install via `brew install gh` or [cli.github.com](https://cli.github.com). |
 | Azure CLI (`az`) with `azure-devops` extension | ≥ 2.50 | Required only if you backup Azure DevOps repos. Install with `brew install azure-cli` then `az extension add --name azure-devops`. |
+| GitLab CLI (`glab`) | ≥ 1.40 | Optional — only used for the `glab auth status` boot probe inside the container and for ad-hoc debugging. Discovery goes through the REST API directly, so you can skip installing `glab` locally if you only run the Astro dev server. Install via `brew install glab` or from <https://gitlab.com/gitlab-org/cli>. |
 | `openssl` | any | Used to generate `MASTER_KEY`. |
 
 Optional but recommended:
 
 - A throwaway GitHub fine-grained PAT with `repo:read` and `metadata:read` scopes.
 - An Azure DevOps PAT with **Code (Read)** scope.
+- A GitLab PAT with `read_api` and `read_repository` scopes.
 - A real or test SMTP account (e.g. Mailtrap, Mailpit) for SMTP tests.
-
 ## 2. First-time setup
 
 ```bash
@@ -62,6 +63,9 @@ CRON_SCHEDULE=0 2 * * *
 # AZUREDEVOPS_PAT=xxx
 # AZUREDEVOPS_PAT_EXPIRES=2026-12-31
 # AZUREDEVOPS_ORG=myorg
+# GITLAB_PAT=glpat-xxx
+# GITLAB_PAT_EXPIRES=2026-12-31
+# GITLAB_HOST=gitlab.example.com   # only for self-hosted
 EOF
 
 echo "MASTER_KEY=$(openssl rand -hex 32)" >> .env.local
@@ -164,6 +168,10 @@ curl -s -u dev:dev -X POST http://localhost:3000/api/repos \
 curl -s -u dev:dev -X POST http://localhost:3000/api/test/github -d '{}' \
   -H 'Content-Type: application/json'
 
+# Test GitLab PAT (uses stored token + host unless you provide them)
+curl -s -u dev:dev -X POST http://localhost:3000/api/test/gitlab -d '{}' \
+  -H 'Content-Type: application/json'
+
 # Inspect lock state
 curl -s -u dev:dev http://localhost:3000/api/backup/trigger | jq
 
@@ -208,7 +216,7 @@ src/
                                   size-based rotation, secret redaction)
     backup/engine.ts            the actual backup runner
     plugins/
-      register.ts, github.ts, azuredevops.ts, interface.ts
+      register.ts, github.ts, azuredevops.ts, gitlab.ts, interface.ts
     repos-file.ts               repos.txt parser/writer
   pages/
     index.astro, repos.astro, runs.astro, logs.astro
@@ -366,6 +374,7 @@ docker compose up -d
 | Browser keeps re-prompting for credentials | `UI_USER` / `UI_PASS` mismatch; use `localhost` not `127.0.0.1` to avoid stale cached creds. |
 | Worker logs `Another process is already running a backup` | A previous run crashed and left `.dev/data/.backup.lock`; the lock self-heals once the recorded PID is no longer alive (uses `process.kill(pid, 0)`). Delete the file manually if needed. |
 | `gh: command not found` on Test connection | Install GitHub CLI (`brew install gh`). The check exec's the `gh` binary directly. |
+| `glab: command not found` inside the container / during `glab auth status` | The Dockerfile installs `glab` via the official tarball release; rebuild the image after pulling changes. Locally the Astro server uses the REST API directly, so `glab` is optional for development. |
 | Cron schedule changed but worker still uses the old one | Cron is bound at worker startup; restart `npm run worker:dev` after editing the schedule. |
 | `better-sqlite3` build error | Use Node 22 (`nvm use 22`) so the prebuilt binary is selected; otherwise install `python3` + a C++ toolchain. |
 | One repo fails to clone (`curl 56`, `early EOF`, `HTTP/2 CANCEL`) while others succeed | Enable **Verbose git trace (debug)** on `/settings/repos/<id>`, trigger a backup, then download the captured log from the **Debug traces** card. The log under `/data/debug-logs/repo-<id>/` contains full `GIT_TRACE` / `GIT_CURL_VERBOSE` / `GIT_TRACE_PACKET` output. Typical root causes: Docker bridge MTU on the host (try `com.docker.network.driver.mtu: 1400`), ISP/DPI resetting long single flows, container OOM during `index-pack` on large repos, or Azure DevOps `dev.azure.com` vs `*.visualstudio.com` routing. Logs are capped at 250 MiB each and the last 10 per repo are retained. |

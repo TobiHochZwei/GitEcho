@@ -16,7 +16,8 @@ try {
 const settings = loadSettings();
 const githubExcluded = settings.github?.excludedUrls ?? [];
 const adoExcluded = settings.azureDevOps?.excludedUrls ?? [];
-const hasExclusions = githubExcluded.length + adoExcluded.length > 0;
+const gitlabExcluded = settings.gitlab?.excludedUrls ?? [];
+const hasExclusions = githubExcluded.length + adoExcluded.length + gitlabExcluded.length > 0;
 
 // Discovered repos (from the SQLite database). These are the repos GitEcho
 // actually knows about: union of repos.txt + API auto-discovery results.
@@ -56,8 +57,9 @@ const pinnedUrlSet = new Set(
 const discoveredByProvider = {
   github: discoveredRepos.filter((r) => r.provider === 'github'),
   azuredevops: discoveredRepos.filter((r) => r.provider === 'azuredevops'),
+  gitlab: discoveredRepos.filter((r) => r.provider === 'gitlab'),
   other: discoveredRepos.filter(
-    (r) => r.provider !== 'github' && r.provider !== 'azuredevops',
+    (r) => r.provider !== 'github' && r.provider !== 'azuredevops' && r.provider !== 'gitlab',
   ),
 };
 
@@ -127,6 +129,7 @@ function statusBadge(status: string | null): { cls: string; label: string } {
         <div class="d-flex gap-3 mb-3 flex-wrap">
           <span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub: {discoveredByProvider.github.length}</span>
           <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps: {discoveredByProvider.azuredevops.length}</span>
+          <span class="badge text-bg-warning"><i class="bi bi-gitlab me-1"></i>GitLab: {discoveredByProvider.gitlab.length}</span>
           {discoveredByProvider.other.length > 0 && (
             <span class="badge text-bg-secondary">Other: {discoveredByProvider.other.length}</span>
           )}
@@ -166,7 +169,9 @@ function statusBadge(status: string | null): { cls: string; label: string } {
                         ? <span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub</span>
                         : r.provider === 'azuredevops'
                           ? <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps</span>
-                          : <span class="badge text-bg-secondary">{r.provider}</span>}
+                          : r.provider === 'gitlab'
+                            ? <span class="badge text-bg-warning"><i class="bi bi-gitlab me-1"></i>GitLab</span>
+                            : <span class="badge text-bg-secondary">{r.provider}</span>}
                     </td>
                     <td class="small"><a href={detailHref} class="text-decoration-none"><code>{r.owner}</code></a></td>
                     <td class="small">
@@ -238,7 +243,9 @@ function statusBadge(status: string | null): { cls: string; label: string } {
                     ? <span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub</span>
                     : r.provider === 'azuredevops'
                       ? <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps</span>
-                      : <span class="badge text-bg-secondary">Unknown</span>}
+                      : r.provider === 'gitlab'
+                        ? <span class="badge text-bg-warning"><i class="bi bi-gitlab me-1"></i>GitLab</span>
+                        : <span class="badge text-bg-secondary">Unknown</span>}
                 </td>
                 <td><code>{r.url}</code></td>
                 <td class="text-end">
@@ -254,7 +261,7 @@ function statusBadge(status: string | null): { cls: string; label: string } {
     )}
   </Card>
 
-  <Card title={`Excluded from auto-discovery (${githubExcluded.length + adoExcluded.length})`} icon="bi-slash-circle">
+  <Card title={`Excluded from auto-discovery (${githubExcluded.length + adoExcluded.length + gitlabExcluded.length})`} icon="bi-slash-circle">
     {!hasExclusions ? (
       <p class="text-secondary mb-0">
         Nothing blacklisted. When you remove a repo you can choose to also exclude it from
@@ -281,6 +288,17 @@ function statusBadge(status: string | null): { cls: string; label: string } {
             {adoExcluded.map((u) => (
               <tr>
                 <td><span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps</span></td>
+                <td><code>{u}</code></td>
+                <td class="text-end">
+                  <button class="btn btn-sm btn-outline-success" data-url={u} data-action="unexclude">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Allow again
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {gitlabExcluded.map((u) => (
+              <tr>
+                <td><span class="badge text-bg-warning"><i class="bi bi-gitlab me-1"></i>GitLab</span></td>
                 <td><code>{u}</code></td>
                 <td class="text-end">
                   <button class="btn btn-sm btn-outline-success" data-url={u} data-action="unexclude">

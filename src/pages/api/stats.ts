@@ -16,7 +16,8 @@ export const GET: APIRoute = async () => {
       totalRepos: repos.length,
       providers: {
         github: repos.filter(r => r.provider === 'github').length,
-        azuredevops: repos.filter(r => r.provider === 'azuredevops').length
+        azuredevops: repos.filter(r => r.provider === 'azuredevops').length,
+        gitlab: repos.filter(r => r.provider === 'gitlab').length
       },
       latestRun,
       backupMode: config.backupMode

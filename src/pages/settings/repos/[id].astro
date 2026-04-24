@@ -93,7 +93,9 @@ const isTracing = repo?.debug_trace === 1;
               ? <span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub</span>
               : repo.provider === 'azuredevops'
                 ? <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps</span>
-                : <span class="badge text-bg-secondary">{repo.provider}</span>}
+                : repo.provider === 'gitlab'
+                  ? <span class="badge text-bg-warning"><i class="bi bi-gitlab me-1"></i>GitLab</span>
+                  : <span class="badge text-bg-secondary">{repo.provider}</span>}
           </dd>
 
           <dt class="col-sm-3">Owner / Project</dt>

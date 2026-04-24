@@ -1,20 +1,21 @@
-# GitHub Backup / Azure DevOps Backup
+# GitHub / Azure DevOps / GitLab Backup
 
 ## Technical Stack
 This is a node.js application built with Astro.js and background tasks in node.js
 
 ## Purpose
-This app helps you back up the code on GitHub.com and Azure DevOps. It creates offline backups of selected repositories. The SQLite database (`/data/gitecho.db`) is the **source of truth** for every repository GitEcho knows about — it is populated automatically via provider auto-discovery (`gh repo list`, `az repos list`) and is merged with an optional *extras* list in `/config/repos.txt` for repos auto-discovery can't see (other orgs, read-only tokens, manual pins). All backup state — repositories, backup runs, sync times, notes, and checksums — lives in the database.
+This app helps you back up the code on GitHub.com, Azure DevOps, and GitLab (SaaS or self-hosted). It creates offline backups of selected repositories. The SQLite database (`/data/gitecho.db`) is the **source of truth** for every repository GitEcho knows about — it is populated automatically via provider auto-discovery (`gh repo list`, `az repos list`, GitLab REST `GET /projects?membership=true`) and is merged with an optional *extras* list in `/config/repos.txt` for repos auto-discovery can't see (other orgs, read-only tokens, manual pins). All backup state — repositories, backup runs, sync times, notes, and checksums — lives in the database.
 
 ## App flow
 The app starts in red or green. The background is light red when there was no backup in the last 24h (read from the local SQLite database `gitecho.db` in `/data`). The background is green when there was a successful backup in the last 24h.
 
 Container:
-- Environment PAT for Github / AzureDevOps
+- Environment PAT for GitHub / Azure DevOps / GitLab
 - User needs to specify per Token the ExpireTime
 - Mount Points for the Targets
-- GH Cli should be used for all actions (Github)
-- Azure DevOps CLI (AzureDevOps)
+- GH CLI should be used for all actions (GitHub)
+- Azure DevOps CLI (Azure DevOps)
+- GitLab: REST API for discovery (via `PRIVATE-TOKEN` header) and `glab` CLI is installed in the image for ad-hoc debugging; cloning uses `git` with the PAT embedded as HTTP Basic auth (`oauth2:<pat>`)
 - The tool should store all available repositories, backup-run history, and the last sync time in a local SQLite database (`gitecho.db`) on the data mount point
 - The tool should run in configurable cycles via environment variable — the user can specify a cron syntax to schedule
 - Everything should be configurable via environment variables + mount points
@@ -88,11 +89,11 @@ successful backup transitions the repository back to `success`.
 │  │  Astro.js │   │     Background Scheduler      │   │
 │  │  Web UI   │   │  (cron-based backup cycles)   │   │
 │  │           │   │                               │   │
-│  │ - Status  │   │  ┌─────────┐  ┌───────────┐  │   │
-│  │ - Browse  │   │  │ GitHub  │  │ Azure     │  │   │
-│  │ - Download│   │  │ Plugin  │  │ DevOps    │  │   │
-│  │           │   │  │ (GH CLI)│  │ Plugin    │  │   │
-│  └─────┬─────┘   │  └────┬────┘  └─────┬─────┘  │   │
+│  │ - Status  │   │  ┌───────┐ ┌────────┐ ┌─────┐ │   │
+│  │ - Browse  │   │  │GitHub │ │ Azure  │ │Git- │ │   │
+│  │ - Download│   │  │Plugin │ │ DevOps │ │Lab  │ │   │
+│  │           │   │  │(gh CLI│ │ Plugin │ │Plgn │ │   │
+│  └─────┬─────┘   │  └───┬───┘ └───┬────┘ └──┬──┘ │   │
 │        │         │       │              │        │   │
 │        │         └───────┼──────────────┼────────┘   │
 │        │                 │              │            │
@@ -116,7 +117,7 @@ successful backup transitions the repository back to `success`.
         Mount Points (persistent volumes)
 ```
 
-**Plugin System:** Each git provider (GitHub, Azure DevOps, etc.) is implemented as an isolated plugin. Plugins share a common interface for repository discovery, cloning, and syncing — making it straightforward to add support for GitLab, Bitbucket, or other providers in the future.
+**Plugin System:** Each git provider (GitHub, Azure DevOps, GitLab, …) is implemented as an isolated plugin. Plugins share a common interface for repository discovery, cloning, and syncing — making it straightforward to add support for Bitbucket or other providers in the future.
 
 ## Environment Variables
 
@@ -161,6 +162,7 @@ without recreating the container.
 |---|---|---|
 | GitHub PAT + expiration date | `/settings/providers` → GitHub | `GITHUB_PAT`, `GITHUB_PAT_EXPIRES` |
 | Azure DevOps PAT + expiration date + organization | `/settings/providers` → Azure DevOps | `AZUREDEVOPS_PAT`, `AZUREDEVOPS_PAT_EXPIRES`, `AZUREDEVOPS_ORG` |
+| GitLab PAT + expiration date + host (self-hosted only) | `/settings/providers` → GitLab | `GITLAB_PAT`, `GITLAB_PAT_EXPIRES`, `GITLAB_HOST` |
 | SMTP host / port / user / password / from / to | `/settings/smtp` | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_TO` |
 | Backup mode (`option1` / `option2` / `option3`) | `/settings/general` | `BACKUP_MODE` |
 | Cron schedule | `/settings/general` | `CRON_SCHEDULE` |
@@ -209,6 +211,25 @@ Create tokens at <https://github.com/settings/tokens>.
 
 Create tokens at `https://dev.azure.com/<your-org>/_usersSettings/tokens`.
 
+**GitLab**
+
+- **Scopes:** `read_api` (list projects the PAT is a member of) and
+  `read_repository` (clone over HTTPS). No write scopes needed.
+- **Expiry:** GitLab PATs can be created without an expiration date — if
+  yours doesn't expire, leave the expiry field empty or set a far-future
+  date. When an expiry *is* set, the same warning window controlled by
+  `PAT_EXPIRY_WARN_DAYS` applies.
+- **Self-hosted GitLab:** set `GITLAB_HOST` (or the Host field on
+  `/settings/providers`) to the hostname only (e.g.
+  `gitlab.example.com`). Discovery, cloning, and URL classification in
+  `repos.txt` then target that host instead of `gitlab.com`.
+- **Nested groups:** URLs of the form
+  `https://gitlab.com/group/subgroup/…/repo` are fully supported. The
+  *owner* column shows the full group path, and the on-disk backup path
+  becomes `/backups/gitlab/<group>/<subgroup>…/<repo>`.
+
+Create tokens at <https://gitlab.com/-/user_settings/personal_access_tokens> (or `<host>/-/user_settings/personal_access_tokens` for self-hosted).
+
 **Defaults:** `BACKUP_MODE=option1`, `CRON_SCHEDULE=0 2 * * *` (daily at 2 AM), `PAT_EXPIRY_WARN_DAYS=14`, `NOTIFY_ON_SUCCESS=false`.
 
 ## Settings UI
@@ -216,7 +237,7 @@ Create tokens at `https://dev.azure.com/<your-org>/_usersSettings/tokens`.
 GitEcho ships with a web UI for managing configuration without restarting the container. Visit `/settings` after logging in to:
 
 - **Repositories** — add or remove URLs in `/config/repos.txt` from the browser.
-- **Providers** — set or rotate GitHub / Azure DevOps PATs, record their expiration dates, toggle GitHub auto-discovery, and run a one-click *Test connection* (uses `gh auth status` / `az devops project list`).
+- **Providers** — set or rotate GitHub / Azure DevOps / GitLab PATs, record their expiration dates, toggle auto-discovery, and run a one-click *Test connection* (uses `gh auth status`, `az devops project list`, or a GitLab `/api/v4/user` call).
 - **SMTP** — configure host/port/user/password/from/to, toggle "notify on success", set `pat_expiry_warn_days`, and send a test email.
 - **General** — change backup mode, edit the cron schedule, and trigger an ad-hoc backup with **Run backup**. The button is disabled while a run is already in progress (the worker process and the web process share a filesystem lock at `/data/.backup.lock`).
 - **Per-run details** — `/runs/<id>` lists every repository that was processed in a given run with status, error message, ZIP path, and SHA-256.
@@ -343,6 +364,7 @@ ignored. Supported URL forms:
 
 - GitHub: `https://github.com/<owner>/<repo>` (with or without `.git`)
 - Azure DevOps: `https://dev.azure.com/<org>/<project>/_git/<repo>`
+- GitLab: `https://gitlab.com/<group>(/<subgroup>)*/<repo>` (nested groups supported; when `GITLAB_HOST` is set, URLs on that host are accepted instead of gitlab.com)
 
 Example:
 
@@ -352,6 +374,10 @@ https://github.com/octocat/Hello-World
 
 # Azure DevOps repos
 https://dev.azure.com/myorg/MyProject/_git/my-repo
+
+# GitLab repos (nested groups supported)
+https://gitlab.com/mygroup/my-repo
+https://gitlab.com/mygroup/subgroup/my-repo
 ```
 
 > **GitHub auto-discovery:** in addition to anything listed in `repos.txt`,
@@ -364,8 +390,11 @@ https://dev.azure.com/myorg/MyProject/_git/my-repo
 > all repositories visible to the configured `AZUREDEVOPS_PAT` via
 > `az devops project list` + `az repos list`. Discovery can be disabled per
 > provider via the `Auto-discover` checkbox on `/settings/providers`.
->
-> **Filters & discovery hygiene:** on `/settings/providers` you can additionally:
+>> **GitLab auto-discovery:** the GitLab provider discovers all projects the
+>   configured `GITLAB_PAT` is a member of via the REST endpoint
+>   `GET /api/v4/projects?membership=true` (paginated, up to 5 000 projects).
+>   Nested groups are walked automatically — the full namespace path becomes
+>   the repo's `owner`.> **Filters & discovery hygiene:** on `/settings/providers` you can additionally:
 > - Restrict discovery by **owner/org allow-list** and **deny-list**
 >   (case-insensitive, comma-separated; for Azure DevOps either the org or
 >   the project segment matches).

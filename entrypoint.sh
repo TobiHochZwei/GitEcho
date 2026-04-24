@@ -128,6 +128,17 @@ if [ -n "$AZUREDEVOPS_PAT" ]; then
   export AZURE_DEVOPS_EXT_PAT="$AZUREDEVOPS_PAT"
 fi
 
+# Configure GitLab CLI auth. `glab` picks up GITLAB_TOKEN + GITLAB_HOST
+# from the environment; we only run `auth status` as a boot-time probe so
+# misconfigured PATs surface early in the container logs.
+if [ -n "$GITLAB_PAT" ]; then
+  export GITLAB_TOKEN="${GITLAB_TOKEN:-$GITLAB_PAT}"
+  if [ -n "$GITLAB_HOST" ]; then
+    export GITLAB_HOST
+  fi
+  glab auth status >/dev/null 2>&1 || echo "Warning: glab auth status failed (check GITLAB_PAT / GITLAB_HOST)"
+fi
+
 echo "Starting background worker..."
 node /app/dist/worker/index.mjs &
 WORKER_PID=$!

@@ -50,7 +50,7 @@ try {
     failedRuns7d: 0,
     unavailableCount: 0,
   };
-  config = { backupMode: 'option1', cronSchedule: '0 2 * * *', github: null, azureDevOps: null };
+  config = { backupMode: 'option1', cronSchedule: '0 2 * * *', github: null, azureDevOps: null, gitlab: null };
 }
 
 const health = stats.hadRecentBackup ? 'success' : 'danger';
@@ -74,8 +74,10 @@ function patBadge(days: number | null): { variant: string; label: string } {
 
 const ghDays = daysUntil(config.github?.patExpires);
 const adoDays = daysUntil(config.azureDevOps?.patExpires);
+const glDays = daysUntil(config.gitlab?.patExpires);
 const ghBadge = patBadge(ghDays);
 const adoBadge = patBadge(adoDays);
+const glBadge = patBadge(glDays);
 
 const historyLabels = JSON.stringify(history.map((h) => h.id));
 const historySuccess = JSON.stringify(history.map((h) => h.success));
@@ -139,7 +141,7 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
 
   <!-- Provider cards -->
   <div class="row">
-    <div class="col-12 col-lg-6">
+    <div class="col-12 col-lg-4">
       <Card title="GitHub" icon="bi-github">
         {config.github ? (
           <>
@@ -159,7 +161,7 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
         )}
       </Card>
     </div>
-    <div class="col-12 col-lg-6">
+    <div class="col-12 col-lg-4">
       <Card title="Azure DevOps" icon="bi-microsoft">
         {config.azureDevOps ? (
           <>
@@ -170,6 +172,26 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
             <p class="mb-1 text-secondary small">PAT expires: <strong>{config.azureDevOps.patExpires?.toISOString().slice(0, 10) ?? '—'}</strong></p>
             <p class="mb-1 text-secondary small">Org: <strong>{config.azureDevOps.org ?? '—'}</strong></p>
             <button class="btn btn-sm btn-outline-primary mt-2" data-action="test-azuredevops"><i class="bi bi-plug me-1"></i>Test connection</button>
+          </>
+        ) : (
+          <>
+            <span class="badge text-bg-secondary"><i class="bi bi-x-circle me-1"></i>Not configured</span>
+            <p class="mt-2 mb-0"><a href="/settings/providers" class="btn btn-sm btn-primary"><i class="bi bi-gear me-1"></i>Configure</a></p>
+          </>
+        )}
+      </Card>
+    </div>
+    <div class="col-12 col-lg-4">
+      <Card title="GitLab" icon="bi-gitlab">
+        {config.gitlab ? (
+          <>
+            <div class="mb-2">
+              <span class="badge text-bg-success me-2"><i class="bi bi-check-circle me-1"></i>Configured</span>
+              <span class={`badge text-bg-${glBadge.variant}`}><i class="bi bi-key me-1"></i>{glBadge.label}</span>
+            </div>
+            <p class="mb-1 text-secondary small">PAT expires: <strong>{config.gitlab.patExpires?.toISOString().slice(0, 10) ?? '—'}</strong></p>
+            <p class="mb-1 text-secondary small">Host: <strong>{config.gitlab.host ?? 'gitlab.com'}</strong></p>
+            <button class="btn btn-sm btn-outline-primary mt-2" data-action="test-gitlab"><i class="bi bi-plug me-1"></i>Test connection</button>
           </>
         ) : (
           <>
@@ -232,6 +254,9 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
           </button>
           <button class="btn btn-outline-secondary" data-action="test-azuredevops" disabled={!config.azureDevOps}>
             <i class="bi bi-microsoft me-1"></i>Test Azure DevOps
+          </button>
+          <button class="btn btn-outline-secondary" data-action="test-gitlab" disabled={!config.gitlab}>
+            <i class="bi bi-gitlab me-1"></i>Test GitLab
           </button>
           <button class="btn btn-outline-secondary" data-action="test-smtp">
             <i class="bi bi-envelope me-1"></i>Send test email
@@ -367,6 +392,15 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
     btn.addEventListener('click', async () => {
       toast('Testing Azure DevOps connection…', 'info');
       const res = await fetch('/api/test/azuredevops', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const j = await res.json();
+      toast(j.message || j.error || (res.ok ? 'OK' : 'Failed'), res.ok ? 'success' : 'danger');
+    });
+  });
+
+  document.querySelectorAll('[data-action="test-gitlab"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      toast('Testing GitLab connection…', 'info');
+      const res = await fetch('/api/test/gitlab', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       const j = await res.json();
       toast(j.message || j.error || (res.ok ? 'OK' : 'Failed'), res.ok ? 'success' : 'danger');
     });

@@ -17,6 +17,10 @@ services:
       GITHUB_PAT_EXPIRES: ${GITHUB_PAT_EXPIRES}
       AZUREDEVOPS_PAT: ${AZUREDEVOPS_PAT:-}
       AZUREDEVOPS_PAT_EXPIRES: ${AZUREDEVOPS_PAT_EXPIRES:-}
+      GITLAB_PAT: ${GITLAB_PAT:-}
+      GITLAB_PAT_EXPIRES: ${GITLAB_PAT_EXPIRES:-}
+      # Optional: hostname for self-hosted GitLab (default: gitlab.com)
+      GITLAB_HOST: ${GITLAB_HOST:-}
 
       # Backup settings
       BACKUP_MODE: ${BACKUP_MODE:-option1}

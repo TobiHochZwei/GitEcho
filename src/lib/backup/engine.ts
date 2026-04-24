@@ -13,6 +13,7 @@ import {
 import { runDiscovery } from '../discovery';
 import { isUpstreamUnavailable } from '../plugins/errors';
 import type { RepositoryInfo, ProviderPlugin } from '../plugins/interface';
+import { getPluginRegistry } from '../plugins/interface';
 import { backupOption1 } from './option1';
 import { backupOption2 } from './option2';
 import { backupOption3 } from './option3';
@@ -79,11 +80,19 @@ export async function runBackup(): Promise<BackupResult> {
 
   const newRepos: NewRepoEntry[] = discovery.providers
     .filter((p) => p.newlyDiscovered.length > 0)
-    .map((p) => ({
-      provider: p.provider,
-      providerDisplay: p.provider === 'azureDevOps' ? 'Azure DevOps' : 'GitHub',
-      repos: p.newlyDiscovered.map((r) => ({ url: r.url, owner: r.owner, name: r.name })),
-    }));
+    .map((p) => {
+      // Prefer the plugin registry's displayName so new providers surface
+      // correctly without per-provider branches here.
+      const plugin = getPluginRegistry().get(String(p.provider).toLowerCase());
+      const providerDisplay =
+        plugin?.displayName ??
+        (p.provider === 'azureDevOps' ? 'Azure DevOps' : p.provider === 'gitlab' ? 'GitLab' : 'GitHub');
+      return {
+        provider: p.provider,
+        providerDisplay,
+        repos: p.newlyDiscovered.map((r) => ({ url: r.url, owner: r.owner, name: r.name })),
+      };
+    });
 
   for (const provider of discovery.providers) {
     if (!provider.authenticated) {

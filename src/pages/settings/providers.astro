@@ -8,25 +8,35 @@ const settings = loadSettings();
 const cfg = getConfig();
 const ghStored = Boolean(cfg.github?.pat);
 const adoStored = Boolean(cfg.azureDevOps?.pat);
+const glStored = Boolean(cfg.gitlab?.pat);
 const ghExpires = settings.github?.patExpires ?? cfg.github?.patExpires?.toISOString().slice(0, 10) ?? '';
 const adoExpires = settings.azureDevOps?.patExpires ?? cfg.azureDevOps?.patExpires?.toISOString().slice(0, 10) ?? '';
+const glExpires = settings.gitlab?.patExpires ?? cfg.gitlab?.patExpires?.toISOString().slice(0, 10) ?? '';
 const adoOrg = settings.azureDevOps?.org ?? cfg.azureDevOps?.org ?? '';
+const glHost = settings.gitlab?.host ?? cfg.gitlab?.host ?? '';
 
 const ghAutoDiscover = settings.github?.autoDiscover ?? true;
 const adoAutoDiscover = settings.azureDevOps?.autoDiscover ?? true;
+const glAutoDiscover = settings.gitlab?.autoDiscover ?? true;
 const ghAutoCleanup = settings.github?.autoCleanupReposTxt ?? true;
 const adoAutoCleanup = settings.azureDevOps?.autoCleanupReposTxt ?? true;
+const glAutoCleanup = settings.gitlab?.autoCleanupReposTxt ?? true;
 const ghNotifyOnNew = settings.github?.notifyOnNewRepo ?? true;
 const adoNotifyOnNew = settings.azureDevOps?.notifyOnNewRepo ?? true;
+const glNotifyOnNew = settings.gitlab?.notifyOnNewRepo ?? true;
 
 const ghFilters = settings.github?.filters ?? {};
 const adoFilters = settings.azureDevOps?.filters ?? {};
+const glFilters = settings.gitlab?.filters ?? {};
 const ghAllow = (ghFilters.ownerAllowList ?? []).join(', ');
 const ghDeny = (ghFilters.ownerDenyList ?? []).join(', ');
 const ghVisibility = ghFilters.visibility ?? 'all';
 const adoAllow = (adoFilters.ownerAllowList ?? []).join(', ');
 const adoDeny = (adoFilters.ownerDenyList ?? []).join(', ');
 const adoVisibility = adoFilters.visibility ?? 'all';
+const glAllow = (glFilters.ownerAllowList ?? []).join(', ');
+const glDeny = (glFilters.ownerDenyList ?? []).join(', ');
+const glVisibility = glFilters.visibility ?? 'all';
 
 const smtpConfigured = Boolean(cfg.smtp);
 
@@ -61,6 +71,22 @@ const providers = [
     visibility: adoVisibility,
     placeholder: 'pat...',
     org: adoOrg,
+  },
+  {
+    key: 'gitlab',
+    icon: 'bi-gitlab',
+    title: 'GitLab',
+    color: 'warning',
+    stored: glStored,
+    expires: glExpires,
+    autoDiscover: glAutoDiscover,
+    autoCleanup: glAutoCleanup,
+    notifyOnNew: glNotifyOnNew,
+    allow: glAllow,
+    deny: glDeny,
+    visibility: glVisibility,
+    placeholder: 'glpat-...',
+    host: glHost,
   },
 ];
 ---
@@ -145,6 +171,31 @@ const providers = [
               </div>
             </div>
           )}
+          {p.key === 'gitlab' && (
+            <div class="alert alert-info d-flex align-items-start gap-2 mb-3" role="alert">
+              <i class="bi bi-info-circle-fill mt-1"></i>
+              <div class="small">
+                <strong>Required PAT scopes (GitLab)</strong>
+                <ul class="mb-1 ps-3">
+                  <li><code>read_api</code> (list projects you are a member of)</li>
+                  <li><code>read_repository</code> (clone repositories over HTTPS)</li>
+                </ul>
+                Create one at <a href="https://gitlab.com/-/user_settings/personal_access_tokens" target="_blank" rel="noopener">gitlab.com/-/user_settings/personal_access_tokens</a>.
+                GitLab PATs can be created without an expiration date — if yours does not expire, simply leave the expiry field empty or set a far-future date.
+                <div class="mt-2">
+                  <strong>Self-hosted GitLab</strong>
+                  <ul class="mb-0 ps-3">
+                    <li>Set <em>Host</em> below (e.g. <code>gitlab.example.com</code>). Discovery, cloning, and URL classification in <code>repos.txt</code> will all target that host.</li>
+                    <li>Only repos whose URL lives on the configured host are treated as GitLab URLs; gitlab.com URLs become unclassified when a self-hosted host is set.</li>
+                  </ul>
+                </div>
+                <div class="mt-2">
+                  <strong>Nested groups</strong>
+                  URLs like <code>https://gitlab.com/group/subgroup/repo</code> are fully supported — the <em>owner</em> column shows the full group path, and discovery walks every project the PAT is a member of.
+                </div>
+              </div>
+            </div>
+          )}
           <form class="provider-form row g-3" data-provider={p.key}>
             <div class="col-12 col-md-6">
               <label class="form-label fw-semibold">Personal Access Token</label>
@@ -163,6 +214,15 @@ const providers = [
                 <input type="text" name="org" value={p.org} placeholder="myorg" class="form-control" />
                 <div class="form-text small">
                   Just the name from <code>dev.azure.com/<strong>myorg</strong></code> (no URL, no slashes).
+                </div>
+              </div>
+            )}
+            {p.key === 'gitlab' && (
+              <div class="col-12 col-md-3">
+                <label class="form-label fw-semibold">Host</label>
+                <input type="text" name="host" value={p.host} placeholder="gitlab.com" class="form-control" />
+                <div class="form-text small">
+                  Leave blank for SaaS. For self-hosted, use the hostname only (e.g. <code>gitlab.example.com</code>).
                 </div>
               </div>
             )}
@@ -269,6 +329,10 @@ const providers = [
         const org = fd.get('org');
         if (org !== null) out.org = org;
       }
+      if (provider === 'gitlab') {
+        const host = fd.get('host');
+        if (host !== null) out.host = host;
+      }
       return out;
     }
 
@@ -299,7 +363,16 @@ const providers = [
         const org = fd.get('org');
         if (org) body.org = org;
       }
-      const endpoint = provider === 'github' ? '/api/test/github' : '/api/test/azuredevops';
+      if (provider === 'gitlab') {
+        const host = fd.get('host');
+        if (host) body.host = host;
+      }
+      const endpoint =
+        provider === 'github'
+          ? '/api/test/github'
+          : provider === 'gitlab'
+            ? '/api/test/gitlab'
+            : '/api/test/azuredevops';
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

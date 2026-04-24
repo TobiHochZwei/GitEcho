@@ -20,6 +20,7 @@ const counts = {
   total: repos.length,
   github: repos.filter((r) => r.provider === 'github').length,
   azure: repos.filter((r) => r.provider === 'azuredevops').length,
+  gitlab: repos.filter((r) => r.provider === 'gitlab').length,
   failed: repos.filter((r) => r.last_sync_status === 'failed').length,
 };
 
@@ -44,9 +45,10 @@ function statusVariant(s: string | null): string {
   )}
 
   <div class="row mb-3">
-    <div class="col-6 col-md-3"><div class="card text-center p-3"><div class="text-secondary small">Total</div><div class="fs-3 fw-semibold">{counts.total}</div></div></div>
-    <div class="col-6 col-md-3"><div class="card text-center p-3"><div class="text-secondary small"><i class="bi bi-github me-1"></i>GitHub</div><div class="fs-3 fw-semibold">{counts.github}</div></div></div>
+    <div class="col-6 col-md-2"><div class="card text-center p-3"><div class="text-secondary small">Total</div><div class="fs-3 fw-semibold">{counts.total}</div></div></div>
+    <div class="col-6 col-md-2"><div class="card text-center p-3"><div class="text-secondary small"><i class="bi bi-github me-1"></i>GitHub</div><div class="fs-3 fw-semibold">{counts.github}</div></div></div>
     <div class="col-6 col-md-3"><div class="card text-center p-3"><div class="text-secondary small"><i class="bi bi-microsoft me-1"></i>Azure DevOps</div><div class="fs-3 fw-semibold">{counts.azure}</div></div></div>
+    <div class="col-6 col-md-2"><div class="card text-center p-3"><div class="text-secondary small"><i class="bi bi-gitlab me-1"></i>GitLab</div><div class="fs-3 fw-semibold">{counts.gitlab}</div></div></div>
     <div class="col-6 col-md-3"><div class="card text-center p-3"><div class="text-secondary small">Failed last sync</div><div class={`fs-3 fw-semibold ${counts.failed > 0 ? 'text-danger' : ''}`}>{counts.failed}</div></div></div>
   </div>
 
@@ -85,7 +87,9 @@ function statusVariant(s: string | null): string {
                   <td>
                     {repo.provider === 'github'
                       ? <span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub</span>
-                      : <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps</span>}
+                      : repo.provider === 'gitlab'
+                        ? <span class="badge text-bg-warning"><i class="bi bi-gitlab me-1"></i>GitLab</span>
+                        : <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps</span>}
                   </td>
                   <td class="small">{repo.last_sync_at ? new Date(repo.last_sync_at).toLocaleString() : <span class="text-secondary">Never</span>}</td>
                   <td>

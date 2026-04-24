@@ -21,10 +21,14 @@ export interface ProviderConfig {
   autoDiscover?: boolean;
   /** Only used by Azure DevOps: organization (bare name or full URL). */
   org?: string;
+  /** Only used by GitLab: host (default gitlab.com, set for self-hosted). */
+  host?: string;
   /** Remove repos.txt URLs already covered by discovery. Defaults to true. */
   autoCleanupReposTxt?: boolean;
   /** Notify by email when previously-unseen repos are discovered. Defaults to true. */
   notifyOnNewRepo?: boolean;
+  /** URLs excluded from auto-discovery (per-provider). */
+  excludedUrls?: string[];
   /** Filters applied during discovery. */
   filters?: DiscoveryFilterSettings;
 }
@@ -41,6 +45,7 @@ export interface SmtpConfig {
 export interface AppConfig {
   github?: ProviderConfig;
   azureDevOps?: ProviderConfig;
+  gitlab?: ProviderConfig;
   backupMode: 'option1' | 'option2' | 'option3';
   cronSchedule: string;
   smtp?: SmtpConfig;
@@ -85,6 +90,9 @@ function loadProvider(
   storedAutoCleanup: boolean | undefined,
   storedNotifyOnNew: boolean | undefined,
   storedFilters: DiscoveryFilterSettings | undefined,
+  storedHost?: string | undefined,
+  envHost?: string | undefined,
+  storedExcludedUrls?: string[] | undefined,
 ): ProviderConfig | undefined {
   // Settings/secrets win when present, else fall back to env
   const pat = storedPat ?? patEnv;
@@ -98,9 +106,11 @@ function loadProvider(
     patExpires: expires,
     autoDiscover: storedAutoDiscover,
     org: storedOrg ?? envOrg,
+    host: storedHost ?? envHost,
     autoCleanupReposTxt: storedAutoCleanup,
     notifyOnNewRepo: storedNotifyOnNew,
     filters: storedFilters,
+    excludedUrls: storedExcludedUrls,
   };
 }
 
@@ -132,6 +142,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
   let github: ProviderConfig | undefined;
   let azureDevOps: ProviderConfig | undefined;
+  let gitlab: ProviderConfig | undefined;
 
   try {
     github = loadProvider(
@@ -145,6 +156,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       settings.github?.autoCleanupReposTxt,
       settings.github?.notifyOnNewRepo,
       settings.github?.filters,
+      undefined,
+      undefined,
+      settings.github?.excludedUrls,
     );
   } catch (err) {
     logger.error('[config] Failed to load GitHub provider:', (err as Error).message);
@@ -162,9 +176,32 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       settings.azureDevOps?.autoCleanupReposTxt,
       settings.azureDevOps?.notifyOnNewRepo,
       settings.azureDevOps?.filters,
+      undefined,
+      undefined,
+      settings.azureDevOps?.excludedUrls,
     );
   } catch (err) {
     logger.error('[config] Failed to load Azure DevOps provider:', (err as Error).message);
+  }
+
+  try {
+    gitlab = loadProvider(
+      env.GITLAB_PAT,
+      env.GITLAB_PAT_EXPIRES,
+      readSecret('gitlab.pat'),
+      settings.gitlab?.patExpires,
+      settings.gitlab?.autoDiscover,
+      undefined,
+      undefined,
+      settings.gitlab?.autoCleanupReposTxt,
+      settings.gitlab?.notifyOnNewRepo,
+      settings.gitlab?.filters,
+      settings.gitlab?.host,
+      env.GITLAB_HOST,
+      settings.gitlab?.excludedUrls,
+    );
+  } catch (err) {
+    logger.error('[config] Failed to load GitLab provider:', (err as Error).message);
   }
 
   const rawBackupMode = settings.backupMode ?? env.BACKUP_MODE ?? 'option1';
@@ -180,6 +217,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   // including for PATs/passwords coming from settings.json (not just env).
   if (github?.pat) registerSecret(github.pat);
   if (azureDevOps?.pat) registerSecret(azureDevOps.pat);
+  if (gitlab?.pat) registerSecret(gitlab.pat);
   if (smtp?.pass) registerSecret(smtp.pass);
 
   const patExpiryWarnDays = settings.patExpiryWarnDays ?? parseInteger(env.PAT_EXPIRY_WARN_DAYS, 14);
@@ -197,6 +235,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   return {
     github,
     azureDevOps,
+    gitlab,
     backupMode,
     cronSchedule,
     smtp,
@@ -215,5 +254,5 @@ export function getConfig(): AppConfig {
 
 /** True when at least one provider is fully configured. */
 export function isBackupCapable(config: AppConfig = getConfig()): boolean {
-  return Boolean(config.github || config.azureDevOps);
+  return Boolean(config.github || config.azureDevOps || config.gitlab);
 }

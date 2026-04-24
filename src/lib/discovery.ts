@@ -23,7 +23,7 @@ import type { DiscoveryFilterSettings } from './settings.js';
 import { notifyNewRepositories } from './smtp.js';
 import { logger } from './logger.js';
 
-export type DiscoveryProvider = 'github' | 'azureDevOps';
+export type DiscoveryProvider = 'github' | 'azureDevOps' | 'gitlab';
 
 export interface DiscoveredRepo {
   repo: RepositoryInfo;
@@ -54,6 +54,7 @@ export interface RunDiscoveryOptions {
 const PLUGIN_NAME_TO_SETTING: Record<string, DiscoveryProvider> = {
   github: 'github',
   azuredevops: 'azureDevOps',
+  gitlab: 'gitlab',
 };
 
 function settingKeyFromPlugin(pluginName: string): DiscoveryProvider | undefined {

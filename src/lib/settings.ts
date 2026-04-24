@@ -26,10 +26,11 @@ export interface ProviderSettings {
   patExpires?: string; // ISO date
   /**
    * Discover all repositories visible to the configured PAT. Honoured for
-   * both GitHub and Azure DevOps. Defaults to true.
+   * GitHub, Azure DevOps, and GitLab. Defaults to true.
    */
   autoDiscover?: boolean;
   org?: string; // Azure DevOps only
+  host?: string; // GitLab only (default gitlab.com, set for self-hosted)
   /**
    * After each successful discovery cycle, remove URLs from /config/repos.txt
    * that are already covered by the database (i.e. redundant pins).
@@ -59,6 +60,7 @@ export interface SmtpSettings {
 export interface PersistedSettings {
   github?: ProviderSettings;
   azureDevOps?: ProviderSettings;
+  gitlab?: ProviderSettings;
   backupMode?: 'option1' | 'option2' | 'option3';
   cronSchedule?: string;
   smtp?: SmtpSettings;
@@ -71,6 +73,7 @@ export interface PersistedSettings {
 export interface PersistedSecrets {
   'github.pat'?: EncryptedSecret;
   'azureDevOps.pat'?: EncryptedSecret;
+  'gitlab.pat'?: EncryptedSecret;
   'smtp.pass'?: EncryptedSecret;
 }
 
@@ -139,7 +142,7 @@ export function saveSettings(next: PersistedSettings): void {
 }
 
 /** Add a repository URL to a provider's discovery blacklist. Idempotent. */
-export function addExcludedUrl(provider: 'github' | 'azureDevOps', url: string): void {
+export function addExcludedUrl(provider: 'github' | 'azureDevOps' | 'gitlab', url: string): void {
   const s = loadSettings();
   const p = s[provider] ?? {};
   const normalized = url.trim();
@@ -150,7 +153,7 @@ export function addExcludedUrl(provider: 'github' | 'azureDevOps', url: string):
 }
 
 /** Remove a URL from a provider's blacklist. Returns true when something was removed. */
-export function removeExcludedUrl(provider: 'github' | 'azureDevOps', url: string): boolean {
+export function removeExcludedUrl(provider: 'github' | 'azureDevOps' | 'gitlab', url: string): boolean {
   const s = loadSettings();
   const p = s[provider];
   if (!p?.excludedUrls || p.excludedUrls.length === 0) return false;
@@ -167,7 +170,8 @@ export function isUrlExcluded(url: string): boolean {
   const lower = url.trim().toLowerCase();
   return (
     (s.github?.excludedUrls ?? []).some((u) => u.toLowerCase() === lower) ||
-    (s.azureDevOps?.excludedUrls ?? []).some((u) => u.toLowerCase() === lower)
+    (s.azureDevOps?.excludedUrls ?? []).some((u) => u.toLowerCase() === lower) ||
+    (s.gitlab?.excludedUrls ?? []).some((u) => u.toLowerCase() === lower)
   );
 }
 
@@ -215,6 +219,9 @@ export function patchSettings(patch: PersistedSettings): PersistedSettings {
   }
   if (patch.azureDevOps !== undefined) {
     next.azureDevOps = { ...(current.azureDevOps ?? {}), ...patch.azureDevOps };
+  }
+  if (patch.gitlab !== undefined) {
+    next.gitlab = { ...(current.gitlab ?? {}), ...patch.gitlab };
   }
   if (patch.smtp !== undefined) {
     next.smtp = { ...(current.smtp ?? {}), ...patch.smtp };

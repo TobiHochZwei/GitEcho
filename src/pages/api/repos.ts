@@ -74,6 +74,9 @@ export const DELETE: APIRoute = async ({ request, url }) => {
     } else if (kind === 'azuredevops') {
       addExcludedUrl('azureDevOps', target);
       excluded = true;
+    } else if (kind === 'gitlab') {
+      addExcludedUrl('gitlab', target);
+      excluded = true;
     }
   }
   return new Response(JSON.stringify({ ok: true, excluded }), {
@@ -108,7 +111,9 @@ export const PATCH: APIRoute = async ({ request }) => {
   const removed =
     kind === 'github'
       ? removeExcludedUrl('github', body.url)
-      : removeExcludedUrl('azureDevOps', body.url);
+      : kind === 'gitlab'
+        ? removeExcludedUrl('gitlab', body.url)
+        : removeExcludedUrl('azureDevOps', body.url);
   return new Response(JSON.stringify({ ok: true, removed }), {
     headers: { 'Content-Type': 'application/json' },
   });

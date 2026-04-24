@@ -21,6 +21,27 @@ RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash \
     && az extension add --name azure-devops \
     && rm -rf /var/lib/apt/lists/*
 
+# Install GitLab CLI (glab). The project publishes .deb packages per release
+# on gitlab.com/gitlab-org/cli/-/releases. We pull the latest stable via the
+# official install script so upgrades happen at image-build time.
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) glab_arch='x86_64' ;; \
+        arm64) glab_arch='arm64' ;; \
+        *) echo "Unsupported arch for glab: $arch" >&2; exit 1 ;; \
+    esac; \
+    glab_ver="$(curl -fsSL https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases?per_page=1 | sed -n 's/.*"tag_name":"v\([^"]*\)".*/\1/p' | head -n1)"; \
+    if [ -z "$glab_ver" ]; then \
+        glab_ver='1.70.0'; \
+    fi; \
+    curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${glab_ver}/downloads/glab_${glab_ver}_linux_${glab_arch}.tar.gz" \
+        -o /tmp/glab.tgz; \
+    tar -xzf /tmp/glab.tgz -C /tmp; \
+    install -m 0755 /tmp/bin/glab /usr/local/bin/glab; \
+    rm -rf /tmp/glab.tgz /tmp/bin /tmp/LICENSE /tmp/README.md 2>/dev/null || true; \
+    glab --version
+
 WORKDIR /app
 
 # Install dependencies

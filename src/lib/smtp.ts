@@ -298,6 +298,7 @@ export async function checkAndNotifyPatExpiry(): Promise<void> {
   const providers: Array<{ name: string; config: { patExpires: Date } | undefined }> = [
     { name: 'GitHub', config: config.github },
     { name: 'Azure DevOps', config: config.azureDevOps },
+    { name: 'GitLab', config: config.gitlab },
   ];
 
   for (const provider of providers) {
@@ -378,6 +379,7 @@ export function collectPatExpiryWarnings(): PatWarning[] {
   const providers: Array<{ name: string; config: { patExpires: Date } | undefined }> = [
     { name: 'GitHub', config: config.github },
     { name: 'Azure DevOps', config: config.azureDevOps },
+    { name: 'GitLab', config: config.gitlab },
   ];
 
   for (const provider of providers) {

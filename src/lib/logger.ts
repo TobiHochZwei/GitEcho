@@ -93,7 +93,7 @@ export function setLevel(level: LogLevel | undefined): void {
 
 function collectSecrets(): string[] {
   const values = new Set<string>();
-  for (const key of ['GITHUB_PAT', 'AZUREDEVOPS_PAT', 'MASTER_KEY', 'SMTP_PASS', 'UI_PASS']) {
+  for (const key of ['GITHUB_PAT', 'AZUREDEVOPS_PAT', 'GITLAB_PAT', 'MASTER_KEY', 'SMTP_PASS', 'UI_PASS']) {
     const v = process.env[key];
     if (v && v.length >= 6) values.add(v);
   }
@@ -118,6 +118,8 @@ function redactString(input: string): string {
   }
   // Generic "classic" GitHub PAT pattern (ghp_..., github_pat_...)
   out = out.replace(/\b(ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}\b/g, '***');
+  // Generic GitLab PAT pattern (glpat-..., ~20+ chars)
+  out = out.replace(/\bglpat-[A-Za-z0-9_-]{20,}\b/g, '***');
   // Strip credentials embedded in URLs: https://user:pass@host and https://token@host
   out = out.replace(/(https?:\/\/)[^/@\s:]+:[^/@\s]+@/gi, '$1***:***@');
   out = out.replace(/(https?:\/\/)[^/@\s:]{6,}@/gi, '$1***@');

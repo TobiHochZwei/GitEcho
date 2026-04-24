@@ -14,19 +14,37 @@ export interface RepoLine {
   kind: RepoLineKind;
   text: string;
   url?: string;
-  provider?: 'github' | 'azuredevops';
+  provider?: 'github' | 'azuredevops' | 'gitlab';
 }
 
 const GITHUB_RE = /^https?:\/\/github\.com\/[^/\s]+\/[^/\s]+(?:\.git)?$/i;
 const AZDO_RE = /^https?:\/\/dev\.azure\.com\/[^/\s]+\/[^/\s]+\/_git\/[^/\s]+$/i;
+// GitLab supports nested groups: <host>/<group>(/<subgroup>)+/<repo>.
+// We accept gitlab.com as the SaaS default; for self-hosted GitLab the
+// URL must still live under the host configured via GITLAB_HOST / settings.
+// Classification is best-effort: a URL on a custom host only classifies as
+// gitlab when that host matches the configured host.
+const GITLAB_COM_RE = /^https?:\/\/gitlab\.com\/[^/\s]+(?:\/[^/\s]+)+(?:\.git)?\/?$/i;
+
+function gitlabSelfHostedRe(): RegExp | undefined {
+  const raw = process.env.GITLAB_HOST?.trim();
+  if (!raw) return undefined;
+  const host = raw.replace(/^https?:\/\//i, '').replace(/\/+$/, '').toLowerCase();
+  if (!host || host === 'gitlab.com') return undefined;
+  const escaped = host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^https?:\\/\\/${escaped}\\/[^/\\s]+(?:\\/[^/\\s]+)+(?:\\.git)?\\/?$`, 'i');
+}
 
 function reposPath(): string {
   return join(getConfig().configDir, 'repos.txt');
 }
 
-export function classifyUrl(url: string): 'github' | 'azuredevops' | undefined {
+export function classifyUrl(url: string): 'github' | 'azuredevops' | 'gitlab' | undefined {
   if (GITHUB_RE.test(url)) return 'github';
   if (AZDO_RE.test(url)) return 'azuredevops';
+  if (GITLAB_COM_RE.test(url)) return 'gitlab';
+  const selfHosted = gitlabSelfHostedRe();
+  if (selfHosted && selfHosted.test(url)) return 'gitlab';
   return undefined;
 }
 
@@ -70,7 +88,7 @@ export function writeReposFile(lines: RepoLine[]): void {
 }
 
 /** Convenience: list only the URL entries. */
-export function listRepoUrls(): { url: string; provider?: 'github' | 'azuredevops' }[] {
+export function listRepoUrls(): { url: string; provider?: 'github' | 'azuredevops' | 'gitlab' }[] {
   return readReposFile()
     .filter((l): l is RepoLine & { url: string } => l.kind === 'url' && Boolean(l.url))
     .map((l) => ({ url: l.url, provider: l.provider }));
@@ -85,7 +103,7 @@ export function addRepoUrl(url: string): { added: boolean; reason?: string } {
     return {
       added: false,
       reason:
-        'URL does not match a supported provider. Expected https://github.com/<owner>/<repo> or https://dev.azure.com/<org>/<project>/_git/<repo>',
+        'URL does not match a supported provider. Expected https://github.com/<owner>/<repo>, https://dev.azure.com/<org>/<project>/_git/<repo>, or https://gitlab.com/<group>/<repo> (nested groups supported)',
     };
   }
 

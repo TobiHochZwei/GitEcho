@@ -68,6 +68,9 @@ const currentLevel = settings.logLevel ?? effectiveLevel();
       <a href="/api/logs/download" class="btn btn-sm btn-outline-secondary ms-auto">
         <i class="bi bi-download me-1"></i>Download full log
       </a>
+      <button type="button" id="download-filtered" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-funnel me-1"></i>Download filtered
+      </button>
     </div>
 
     <div id="logs-file-banner" class="alert alert-warning py-2 small d-none" role="alert">
@@ -237,6 +240,13 @@ const currentLevel = settings.logLevel ?? effectiveLevel();
       const j = await res.json().catch(() => ({}));
       toast(j.error || 'Failed to save log level', 'danger');
     }
+  });
+
+  const downloadFilteredBtn = document.getElementById('download-filtered') as HTMLButtonElement;
+  downloadFilteredBtn.addEventListener('click', () => {
+    const params = collectFilters();
+    const qs = params.toString();
+    window.location.href = qs ? `/api/logs/download?${qs}` : '/api/logs/download';
   });
 
   fetchPage(undefined, false);

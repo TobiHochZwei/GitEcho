@@ -1,15 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="GitEcho">
   <title>GitEcho</title>
-  <!-- Outer echo ring -->
-  <path d="M 32 4 A 28 28 0 0 1 60 32" stroke="#0dcaf0" stroke-width="3" stroke-linecap="round" opacity="0.35"/>
-  <!-- Middle echo ring -->
-  <path d="M 32 12 A 20 20 0 0 1 52 32" stroke="#0dcaf0" stroke-width="3.5" stroke-linecap="round" opacity="0.7"/>
-  <!-- Inner echo ring -->
-  <path d="M 32 22 A 10 10 0 0 1 42 32" stroke="#0dcaf0" stroke-width="3.5" stroke-linecap="round"/>
-  <!-- Mirrored lower arc -->
-  <path d="M 32 52 A 12 12 0 0 0 44 40" stroke="#0dcaf0" stroke-width="3" stroke-linecap="round" opacity="0.55"/>
-  <!-- Central commit node (git "dot") -->
-  <circle cx="32" cy="32" r="6" fill="#0dcaf0"/>
-  <circle cx="32" cy="32" r="2.2" fill="#0b0f19"/>
+  <defs>
+    <linearGradient id="ge-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#0891b2"/>
+    </linearGradient>
+  </defs>
+  <!-- Source commit (origin of the echo) -->
+  <circle cx="6" cy="32" r="4" fill="url(#ge-grad)"/>
+  <!-- Echo waves traveling rightward toward the drive -->
+  <path d="M 12 26 A 7 7 0 0 1 12 38" stroke="#e9ecef" stroke-width="2.5" stroke-linecap="round" opacity="0.95"/>
+  <path d="M 18 22 A 11 11 0 0 1 18 42" stroke="#e9ecef" stroke-width="2.5" stroke-linecap="round" opacity="0.65"/>
+  <path d="M 24 18 A 15 15 0 0 1 24 46" stroke="#e9ecef" stroke-width="2.5" stroke-linecap="round" opacity="0.35"/>
+  <!-- External USB hard drive: cable + connector + enclosure -->
+  <g stroke="url(#ge-grad)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- USB cable entering from top -->
+    <path d="M 38 4 V 12"/>
+    <!-- USB connector -->
+    <rect x="35" y="12" width="6" height="4" rx="0.6" fill="url(#ge-grad)" stroke="none"/>
+    <!-- Drive enclosure -->
+    <rect x="28" y="18" width="26" height="30" rx="3.5"/>
+    <!-- Status LED -->
+    <circle cx="48" cy="24" r="1.6" fill="url(#ge-grad)" stroke="none"/>
+    <!-- Ventilation / branding lines -->
+    <path d="M 33 34 H 49"/>
+    <path d="M 33 40 H 49"/>
+  </g>
 </svg>

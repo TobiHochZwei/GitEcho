@@ -211,8 +211,14 @@ export async function runBackup(options?: { repositoryId?: number }): Promise<Ba
     }
 
     try {
+      const pluginOpts = {
+        trace: {
+          enabled: dbRepo.debug_trace === 1,
+          repoId: dbRepo.id,
+        },
+      };
       if (backupMode === 'option1') {
-        const result = await backupOption1(plugin, repo, backupsDir);
+        const result = await backupOption1(plugin, repo, backupsDir, pluginOpts);
         if (result.success) {
           successCount++;
           updateRepositorySync(dbRepo.id, 'success');
@@ -247,7 +253,7 @@ export async function runBackup(options?: { repositoryId?: number }): Promise<Ba
         const result =
           backupMode === 'option3'
             ? await backupOption3(plugin, repo, backupsDir)
-            : await backupOption2(plugin, repo, backupsDir);
+            : await backupOption2(plugin, repo, backupsDir, pluginOpts);
         if (result.success) {
           successCount++;
           updateRepositorySync(dbRepo.id, 'success', undefined, result.checksum);

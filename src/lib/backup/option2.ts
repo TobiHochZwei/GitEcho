@@ -10,7 +10,11 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
 import archiver from 'archiver';
-import type { ProviderPlugin, RepositoryInfo } from '../plugins/interface';
+import type {
+  PluginCallOptions,
+  ProviderPlugin,
+  RepositoryInfo,
+} from '../plugins/interface';
 import { isUpstreamUnavailable } from '../plugins/errors';
 import { getRepositoryByUrl } from '../database';
 import { redactSecrets } from '../logger.js';
@@ -38,6 +42,7 @@ export async function backupOption2(
   plugin: ProviderPlugin,
   repo: RepositoryInfo,
   backupsDir: string,
+  opts: PluginCallOptions = {},
 ): Promise<{ success: boolean; error?: string; checksum?: string; zipPath?: string; unavailable?: boolean }> {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), 'gitecho-'));
 
@@ -45,7 +50,7 @@ export async function backupOption2(
     // Clone to temp directory
     const authenticatedUrl = plugin.getAuthenticatedUrl(repo.url);
     const cloneDir = path.join(tempDir, repo.name);
-    await plugin.cloneRepository(authenticatedUrl, cloneDir);
+    await plugin.cloneRepository(authenticatedUrl, cloneDir, opts);
 
     // Create ZIP in temp location
     const tempZipPath = path.join(tempDir, `${repo.name}.zip`);

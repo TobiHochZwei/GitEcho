@@ -6,13 +6,18 @@
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { isUpstreamUnavailable } from '../plugins/errors';
-import type { ProviderPlugin, RepositoryInfo } from '../plugins/interface';
+import type {
+  PluginCallOptions,
+  ProviderPlugin,
+  RepositoryInfo,
+} from '../plugins/interface';
 import { redactSecrets } from '../logger.js';
 
 export async function backupOption1(
   plugin: ProviderPlugin,
   repo: RepositoryInfo,
   backupsDir: string,
+  opts: PluginCallOptions = {},
 ): Promise<{ success: boolean; error?: string; unavailable?: boolean }> {
   const targetDir = path.join(backupsDir, repo.provider, repo.owner, repo.name);
 
@@ -22,7 +27,7 @@ export async function backupOption1(
 
     if (dirExists && hasGit) {
       // Existing clone — fetch + pull (never force)
-      await plugin.pullRepository(targetDir);
+      await plugin.pullRepository(targetDir, opts);
     } else {
       if (dirExists && !hasGit) {
         // Corrupted state — remove and re-clone
@@ -33,7 +38,7 @@ export async function backupOption1(
       mkdirSync(path.dirname(targetDir), { recursive: true });
 
       const authenticatedUrl = plugin.getAuthenticatedUrl(repo.url);
-      await plugin.cloneRepository(authenticatedUrl, targetDir);
+      await plugin.cloneRepository(authenticatedUrl, targetDir, opts);
     }
 
     return { success: true };

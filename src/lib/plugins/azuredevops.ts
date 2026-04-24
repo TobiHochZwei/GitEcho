@@ -5,10 +5,13 @@ import { promisify } from 'node:util';
 import { logger, redactSecrets } from '../logger.js';
 
 import { getConfig } from '../config.js';
-import { getRepositoryDebugTraceByUrl } from '../database.js';
 import { classifyGitError, rethrowAsUnavailableIfMatch } from './errors.js';
 import { execGitWithTrace, newTraceLogPath, pruneOldLogs } from './git-trace.js';
-import type { ProviderPlugin, RepositoryInfo } from './interface.js';
+import type {
+  PluginCallOptions,
+  ProviderPlugin,
+  RepositoryInfo,
+} from './interface.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -52,51 +55,6 @@ const GIT_TRANSPORT_FLAGS: string[] = [
 /** Prepend the transport-hardening `-c` flags to a git argv. */
 function gitArgs(...args: string[]): string[] {
   return [...GIT_TRANSPORT_FLAGS, ...args];
-}
-
-/**
- * Look up the per-repo debug-trace flag without ever throwing. Database
- * failures here must never break a backup — tracing is strictly
- * diagnostic.
- */
-/**
- * Produce the canonical, credential-free URL that `listRepositories()` stores
- * in the repositories.url column. Must be applied before any exact-match
- * lookup against that column — otherwise small cosmetic differences (legacy
- * `*.visualstudio.com` host, trailing `.git`, trailing slash, embedded PAT)
- * silently miss the row.
- */
-function canonicalRepoUrl(repoUrl: string): string {
-  // 1. Strip embedded `user:pat@host` credentials.
-  const noCreds = repoUrl.replace(
-    /^(https?:\/\/)[^/@\s]+(?::[^/@\s]*)?@/i,
-    '$1',
-  );
-  // 2. Rewrite legacy visualstudio.com → dev.azure.com.
-  const normalized = normalizeRepoUrl(noCreds);
-  // 3. Drop trailing `.git` and trailing slashes.
-  return normalized.replace(/\.git$/i, '').replace(/\/+$/, '');
-}
-
-async function safeLookupDebugTrace(
-  repoUrl: string,
-): Promise<{ enabled: boolean; id: number | null }> {
-  const canonical = canonicalRepoUrl(repoUrl);
-  try {
-    const result = getRepositoryDebugTraceByUrl(canonical);
-    if (result.id === null) {
-      logger.debug(
-        `[azuredevops] debug_trace lookup miss for canonical URL "${canonical}" (original "${redactSecrets(repoUrl)}")`,
-      );
-    }
-    return result;
-  } catch (err) {
-    logger.warn(
-      `[azuredevops] Failed to look up debug_trace flag for "${canonical}":`,
-      err instanceof Error ? err.message : err,
-    );
-    return { enabled: false, id: null };
-  }
 }
 
 /**
@@ -401,26 +359,30 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
     return repos;
   }
 
-  async cloneRepository(repoUrl: string, targetDir: string): Promise<void> {
+  async cloneRepository(
+    repoUrl: string,
+    targetDir: string,
+    opts: PluginCallOptions = {},
+  ): Promise<void> {
     const authenticatedUrl = this.getAuthenticatedUrl(repoUrl);
-    const trace = await safeLookupDebugTrace(repoUrl);
+    const trace = opts.trace ?? { enabled: false, repoId: 0 };
     logger.info(
-      `[azuredevops] Clone "${repoUrl}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
+      `[azuredevops] Clone "${redactSecrets(repoUrl)}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
     );
     try {
       await retry(
         async () => {
           if (trace.enabled) {
-            const logPath = await newTraceLogPath(trace.id, 'clone');
+            const logPath = await newTraceLogPath(trace.repoId, 'clone');
             logger.info(
-              `[azuredevops] Debug trace enabled for "${repoUrl}" — writing to ${logPath}`,
+              `[azuredevops] Debug trace enabled for "${redactSecrets(repoUrl)}" — writing to ${logPath}`,
             );
             await execGitWithTrace(
               gitArgs('clone', authenticatedUrl, targetDir),
               logPath,
               nonInteractiveGitEnv(),
             );
-            if (trace.id !== null) void pruneOldLogs(trace.id);
+            void pruneOldLogs(trace.repoId);
             return;
           }
           await execCommand('git', gitArgs('clone', authenticatedUrl, targetDir), {
@@ -454,25 +416,16 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
     }
   }
 
-  async pullRepository(repoDir: string): Promise<void> {
+  async pullRepository(
+    repoDir: string,
+    opts: PluginCallOptions = {},
+  ): Promise<void> {
     // Heal existing clones that were made before the auth-URL format fix:
     // rewrite the remote URL to the current (correct) authenticated form so
     // fetch/pull don't fall back to an interactive password prompt.
     await this.healRemoteUrl(repoDir);
 
-    // Look up the debug-trace flag via the remote URL. Failing to resolve
-    // it (e.g. on a bare local clone) simply disables tracing — never an
-    // error.
-    const originUrl = await execFileAsync('git', ['-C', repoDir, 'remote', 'get-url', 'origin'], {
-      env: nonInteractiveGitEnv(),
-    })
-      .then(({ stdout }) => stdout.trim())
-      .catch(() => '');
-    // Canonicalise (strip PAT, rewrite legacy host, drop `.git`/trailing `/`)
-    // so the lookup matches the form stored in repositories.url.
-    const trace = originUrl
-      ? await safeLookupDebugTrace(originUrl)
-      : { enabled: false, id: null };
+    const trace = opts.trace ?? { enabled: false, repoId: 0 };
     logger.info(
       `[azuredevops] Pull "${repoDir}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
     );
@@ -482,7 +435,7 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
       // refs/remotes/origin/* so `set-head --auto` below can resolve the
       // current default branch correctly.
       if (trace.enabled) {
-        const logPath = await newTraceLogPath(trace.id, 'pull');
+        const logPath = await newTraceLogPath(trace.repoId, 'pull');
         logger.info(
           `[azuredevops] Debug trace enabled for "${repoDir}" — writing to ${logPath}`,
         );
@@ -491,7 +444,7 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
           logPath,
           nonInteractiveGitEnv(),
         );
-        if (trace.id !== null) void pruneOldLogs(trace.id);
+        void pruneOldLogs(trace.repoId);
       } else {
         await execCommand('git', gitArgs('-C', repoDir, 'fetch', '--all', '--prune'), {
           env: nonInteractiveGitEnv(),

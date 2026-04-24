@@ -504,23 +504,6 @@ export function deleteRepository(id: number): boolean {
   return result.changes > 0;
 }
 
-/**
- * Look up the debug-trace flag by repo URL. Used by provider plugins that
- * only receive the URL (not the row id) when cloning or pulling.
- * Returns false when the repository is unknown or the flag is off.
- */
-export function getRepositoryDebugTraceByUrl(url: string): {
-  enabled: boolean;
-  id: number | null;
-} {
-  const database = getDatabase();
-  const row = database
-    .prepare('SELECT id, debug_trace FROM repositories WHERE url = ?')
-    .get(url) as { id: number; debug_trace: number } | undefined;
-  if (!row) return { enabled: false, id: null };
-  return { enabled: row.debug_trace === 1, id: row.id };
-}
-
 export interface RepositoryBackupHistoryEntry {
   item_id: number;
   run_id: number;

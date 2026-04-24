@@ -4,10 +4,13 @@ import { promisify } from 'node:util';
 import { logger, redactSecrets } from '../logger.js';
 
 import { getConfig } from '../config.js';
-import { getRepositoryDebugTraceByUrl } from '../database.js';
 import { classifyGitError, rethrowAsUnavailableIfMatch } from './errors.js';
 import { execGitWithTrace, newTraceLogPath, pruneOldLogs } from './git-trace.js';
-import type { ProviderPlugin, RepositoryInfo } from './interface.js';
+import type {
+  PluginCallOptions,
+  ProviderPlugin,
+  RepositoryInfo,
+} from './interface.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -43,33 +46,6 @@ const GIT_TRANSPORT_FLAGS: string[] = [
 /** Prepend the transport-hardening `-c` flags to a git argv. */
 function gitArgs(...args: string[]): string[] {
   return [...GIT_TRANSPORT_FLAGS, ...args];
-}
-
-/**
- * Look up the per-repo debug-trace flag without ever throwing. Database
- * failures here must never break a backup — tracing is strictly
- * diagnostic.
- */
-async function safeLookupDebugTrace(
-  repoUrl: string,
-): Promise<{ enabled: boolean; id: number | null }> {
-  // The backup engine passes a URL with embedded `user:pat@host` credentials
-  // into cloneRepository(); the repositories.url column stores the canonical,
-  // credential-free form. Strip any embedded creds before the exact-match
-  // lookup — otherwise trace is silently never activated for new clones.
-  const canonical = repoUrl.replace(
-    /^(https?:\/\/)[^/@\s]+(?::[^/@\s]*)?@/i,
-    '$1',
-  );
-  try {
-    return getRepositoryDebugTraceByUrl(canonical);
-  } catch (err) {
-    logger.warn(
-      `[github] Failed to look up debug_trace flag for "${canonical}":`,
-      err instanceof Error ? err.message : err,
-    );
-    return { enabled: false, id: null };
-  }
 }
 
 /**
@@ -174,29 +150,30 @@ export class GitHubPlugin implements ProviderPlugin {
     return Array.from(merged.values());
   }
 
-  async cloneRepository(repoUrl: string, targetDir: string): Promise<void> {
+  async cloneRepository(
+    repoUrl: string,
+    targetDir: string,
+    opts: PluginCallOptions = {},
+  ): Promise<void> {
     const url = this.getAuthenticatedUrl(repoUrl);
-    // Normalise the URL the same way `listRepositories` stores it in the
-    // DB so the debug-trace lookup hits the right row.
-    const canonicalUrl = repoUrl.replace(/\.git$/, '');
-    const trace = await safeLookupDebugTrace(canonicalUrl);
+    const trace = opts.trace ?? { enabled: false, repoId: 0 };
     logger.info(
-      `[github] Clone "${repoUrl}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
+      `[github] Clone "${redactSecrets(repoUrl)}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
     );
     try {
       await retry(
         async () => {
           if (trace.enabled) {
-            const logPath = await newTraceLogPath(trace.id, 'clone');
+            const logPath = await newTraceLogPath(trace.repoId, 'clone');
             logger.info(
-              `[github] Debug trace enabled for "${repoUrl}" — writing to ${logPath}`,
+              `[github] Debug trace enabled for "${redactSecrets(repoUrl)}" — writing to ${logPath}`,
             );
             await execGitWithTrace(
               gitArgs('clone', url, targetDir),
               logPath,
               nonInteractiveGitEnv(),
             );
-            if (trace.id !== null) void pruneOldLogs(trace.id);
+            void pruneOldLogs(trace.repoId);
             return;
           }
           await execCommand('git', gitArgs('clone', url, targetDir), {
@@ -226,27 +203,16 @@ export class GitHubPlugin implements ProviderPlugin {
     }
   }
 
-  async pullRepository(repoDir: string): Promise<void> {
+  async pullRepository(
+    repoDir: string,
+    opts: PluginCallOptions = {},
+  ): Promise<void> {
     // Heal existing clones that were made before the auth-URL format fix:
     // rewrite the remote URL to the current (correct) authenticated form so
     // fetch/pull don't fall back to an interactive password prompt.
     await this.healRemoteUrl(repoDir);
 
-    // Resolve the (credential-free) origin URL so we can look up the
-    // per-repo debug-trace flag. Failures here simply disable tracing.
-    const originUrl = await execFileAsync(
-      'git',
-      ['-C', repoDir, 'remote', 'get-url', 'origin'],
-      { env: nonInteractiveGitEnv() },
-    )
-      .then(({ stdout }) => stdout.trim())
-      .catch(() => '');
-    const canonical = originUrl
-      .replace(/^(https:\/\/)[^/@\s]+(?::[^/@\s]+)?@/i, '$1')
-      .replace(/\.git$/, '');
-    const trace = canonical
-      ? await safeLookupDebugTrace(canonical)
-      : { enabled: false, id: null };
+    const trace = opts.trace ?? { enabled: false, repoId: 0 };
 
     logger.info(
       `[github] Pull "${repoDir}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
@@ -257,7 +223,7 @@ export class GitHubPlugin implements ProviderPlugin {
       // refs/remotes/origin/* so `set-head --auto` below can resolve the
       // current default branch correctly.
       if (trace.enabled) {
-        const logPath = await newTraceLogPath(trace.id, 'pull');
+        const logPath = await newTraceLogPath(trace.repoId, 'pull');
         logger.info(
           `[github] Debug trace enabled for "${repoDir}" — writing to ${logPath}`,
         );
@@ -266,7 +232,7 @@ export class GitHubPlugin implements ProviderPlugin {
           logPath,
           nonInteractiveGitEnv(),
         );
-        if (trace.id !== null) void pruneOldLogs(trace.id);
+        void pruneOldLogs(trace.repoId);
       } else {
         await execCommand('git', gitArgs('-C', repoDir, 'fetch', '--all', '--prune'), {
           env: nonInteractiveGitEnv(),

@@ -4,10 +4,13 @@ import { promisify } from 'node:util';
 import { logger, redactSecrets } from '../logger.js';
 
 import { getConfig } from '../config.js';
-import { getRepositoryDebugTraceByUrl } from '../database.js';
 import { classifyGitError, rethrowAsUnavailableIfMatch } from './errors.js';
 import { execGitWithTrace, newTraceLogPath, pruneOldLogs } from './git-trace.js';
-import type { ProviderPlugin, RepositoryInfo } from './interface.js';
+import type {
+  PluginCallOptions,
+  ProviderPlugin,
+  RepositoryInfo,
+} from './interface.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -92,28 +95,6 @@ function glabEnv(): NodeJS.ProcessEnv {
     ...(pat ? { GITLAB_TOKEN: pat } : {}),
     GITLAB_HOST: host,
   };
-}
-
-async function safeLookupDebugTrace(
-  repoUrl: string,
-): Promise<{ enabled: boolean; id: number | null }> {
-  // The backup engine passes a URL with embedded `user:pat@host` credentials
-  // into cloneRepository(); the repositories.url column stores the canonical,
-  // credential-free form. Strip any embedded creds before the exact-match
-  // lookup — otherwise trace is silently never activated for new clones.
-  const canonical = repoUrl.replace(
-    /^(https?:\/\/)[^/@\s]+(?::[^/@\s]*)?@/i,
-    '$1',
-  );
-  try {
-    return getRepositoryDebugTraceByUrl(canonical);
-  } catch (err) {
-    logger.warn(
-      `[gitlab] Failed to look up debug_trace flag for "${canonical}":`,
-      err instanceof Error ? err.message : err,
-    );
-    return { enabled: false, id: null };
-  }
 }
 
 async function retry<T>(
@@ -212,27 +193,30 @@ export class GitLabPlugin implements ProviderPlugin {
     return Array.from(merged.values());
   }
 
-  async cloneRepository(repoUrl: string, targetDir: string): Promise<void> {
+  async cloneRepository(
+    repoUrl: string,
+    targetDir: string,
+    opts: PluginCallOptions = {},
+  ): Promise<void> {
     const url = this.getAuthenticatedUrl(repoUrl);
-    const canonicalUrl = repoUrl.replace(/\.git$/, '');
-    const trace = await safeLookupDebugTrace(canonicalUrl);
+    const trace = opts.trace ?? { enabled: false, repoId: 0 };
     logger.info(
-      `[gitlab] Clone "${repoUrl}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
+      `[gitlab] Clone "${redactSecrets(repoUrl)}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
     );
     try {
       await retry(
         async () => {
           if (trace.enabled) {
-            const logPath = await newTraceLogPath(trace.id, 'clone');
+            const logPath = await newTraceLogPath(trace.repoId, 'clone');
             logger.info(
-              `[gitlab] Debug trace enabled for "${repoUrl}" — writing to ${logPath}`,
+              `[gitlab] Debug trace enabled for "${redactSecrets(repoUrl)}" — writing to ${logPath}`,
             );
             await execGitWithTrace(
               gitArgs('clone', url, targetDir),
               logPath,
               nonInteractiveGitEnv(),
             );
-            if (trace.id !== null) void pruneOldLogs(trace.id);
+            void pruneOldLogs(trace.repoId);
             return;
           }
           await execCommand('git', gitArgs('clone', url, targetDir), {
@@ -262,22 +246,13 @@ export class GitLabPlugin implements ProviderPlugin {
     }
   }
 
-  async pullRepository(repoDir: string): Promise<void> {
+  async pullRepository(
+    repoDir: string,
+    opts: PluginCallOptions = {},
+  ): Promise<void> {
     await this.healRemoteUrl(repoDir);
 
-    const originUrl = await execFileAsync(
-      'git',
-      ['-C', repoDir, 'remote', 'get-url', 'origin'],
-      { env: nonInteractiveGitEnv() },
-    )
-      .then(({ stdout }) => stdout.trim())
-      .catch(() => '');
-    const canonical = originUrl
-      .replace(/^(https:\/\/)[^/@\s]+(?::[^/@\s]+)?@/i, '$1')
-      .replace(/\.git$/, '');
-    const trace = canonical
-      ? await safeLookupDebugTrace(canonical)
-      : { enabled: false, id: null };
+    const trace = opts.trace ?? { enabled: false, repoId: 0 };
 
     logger.info(
       `[gitlab] Pull "${repoDir}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
@@ -285,7 +260,7 @@ export class GitLabPlugin implements ProviderPlugin {
 
     try {
       if (trace.enabled) {
-        const logPath = await newTraceLogPath(trace.id, 'pull');
+        const logPath = await newTraceLogPath(trace.repoId, 'pull');
         logger.info(
           `[gitlab] Debug trace enabled for "${repoDir}" — writing to ${logPath}`,
         );
@@ -294,7 +269,7 @@ export class GitLabPlugin implements ProviderPlugin {
           logPath,
           nonInteractiveGitEnv(),
         );
-        if (trace.id !== null) void pruneOldLogs(trace.id);
+        void pruneOldLogs(trace.repoId);
       } else {
         await execCommand('git', gitArgs('-C', repoDir, 'fetch', '--all', '--prune'), {
           env: nonInteractiveGitEnv(),

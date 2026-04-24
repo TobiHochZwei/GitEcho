@@ -8,6 +8,26 @@ export interface RepositoryInfo {
   description?: string;
 }
 
+/**
+ * Per-repository debug-trace context passed into clone/pull calls.
+ *
+ * Populated by the backup engine from the `repositories` DB row, so plugins
+ * no longer have to reverse-lookup the flag via the repo URL — which was
+ * fragile when stored URLs and canonicalised URLs disagreed (e.g. legacy
+ * `*.visualstudio.com/DefaultCollection/…` vs. `dev.azure.com/…`).
+ *
+ * Optional so direct/test callers that do not have a DB row can still use
+ * the plugin methods; tracing is simply disabled in that case.
+ */
+export interface TraceContext {
+  enabled: boolean;
+  repoId: number;
+}
+
+export interface PluginCallOptions {
+  trace?: TraceContext;
+}
+
 export interface ProviderPlugin {
   /** Unique provider identifier */
   readonly name: string;
@@ -25,10 +45,14 @@ export interface ProviderPlugin {
   listRepositories(): Promise<RepositoryInfo[]>;
 
   /** Clone a repository to the target directory */
-  cloneRepository(repoUrl: string, targetDir: string): Promise<void>;
+  cloneRepository(
+    repoUrl: string,
+    targetDir: string,
+    opts?: PluginCallOptions,
+  ): Promise<void>;
 
   /** Pull latest changes for an already-cloned repository */
-  pullRepository(repoDir: string): Promise<void>;
+  pullRepository(repoDir: string, opts?: PluginCallOptions): Promise<void>;
 
   /** Get the authenticated clone URL (with PAT embedded if needed) */
   getAuthenticatedUrl(repoUrl: string): string;

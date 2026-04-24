@@ -88,7 +88,7 @@ GitEcho is **two processes**: the Astro web server (UI + APIs) and the backgroun
 npm run dev
 ```
 
-Serves the UI at <http://localhost:4321> with HMR. The dev server reads `.env.local` automatically.
+Serves the UI at <http://localhost:3000> with HMR. The dev server reads `.env.local` automatically.
 
 If you leave `DATA_DIR`, `CONFIG_DIR`, and `BACKUPS_DIR` unset, GitEcho defaults to `.dev/data`, `.dev/config`, and `.dev/backups` on local runs.
 
@@ -124,7 +124,7 @@ npm run worker    # runs the built worker
 
 ## 4. Verifying it works
 
-1. **Open the UI** at <http://localhost:4321> — you should see the Dashboard with empty stats.
+1. **Open the UI** at <http://localhost:3000> — you should see the Dashboard with empty stats.
 2. **Settings landing** (`/settings`) shows two banners:
    - Red banner if `UI_USER`/`UI_PASS` are unset.
    - Yellow banner if `MASTER_KEY` is unset.
@@ -153,22 +153,22 @@ With Basic Auth enabled, pass `-u dev:dev`:
 
 ```bash
 # List configured repos
-curl -s -u dev:dev http://localhost:4321/api/repos | jq
+curl -s -u dev:dev http://localhost:3000/api/repos | jq
 
 # Add a repo
-curl -s -u dev:dev -X POST http://localhost:4321/api/repos \
+curl -s -u dev:dev -X POST http://localhost:3000/api/repos \
   -H 'Content-Type: application/json' \
   -d '{"url":"https://github.com/octocat/Hello-World"}'
 
 # Test GitHub PAT (uses stored token unless you provide one)
-curl -s -u dev:dev -X POST http://localhost:4321/api/test/github -d '{}' \
+curl -s -u dev:dev -X POST http://localhost:3000/api/test/github -d '{}' \
   -H 'Content-Type: application/json'
 
 # Inspect lock state
-curl -s -u dev:dev http://localhost:4321/api/backup/trigger | jq
+curl -s -u dev:dev http://localhost:3000/api/backup/trigger | jq
 
 # Trigger a backup
-curl -s -u dev:dev -X POST http://localhost:4321/api/backup/trigger
+curl -s -u dev:dev -X POST http://localhost:3000/api/backup/trigger
 ```
 
 ## 7. Resetting state
@@ -204,18 +204,21 @@ src/
     database.ts                 SQLite schema + CRUD
     stats.ts                    extended dashboard stats + storage usage
     scheduler.ts                node-cron entry point
+    logger.ts                   structured JSONL logger (stdout + DATA_DIR/gitecho.log,
+                                  size-based rotation, secret redaction)
     backup/engine.ts            the actual backup runner
     plugins/
       register.ts, github.ts, azuredevops.ts, interface.ts
     repos-file.ts               repos.txt parser/writer
   pages/
-    index.astro, repos.astro, runs.astro
+    index.astro, repos.astro, runs.astro, logs.astro
     runs/[id].astro             per-run detail
     browse/[...path].astro      file browser (option1)
     zips/[...path].astro        ZIP archive list (option2/3)
     settings/                   settings UI pages
     api/                        JSON endpoints used by the UI
-                                  (incl. /api/storage, /api/logout)
+                                  (incl. /api/storage, /api/logout,
+                                  /api/logs, /api/logs/download)
 worker/index.ts                 worker process entry
 build-worker.mjs                esbuild bundle for the worker
 ```

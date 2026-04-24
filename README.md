@@ -46,10 +46,11 @@ User can decide which mode via environment variable: option1, option2, or option
 
 WebApp features
 - Dashboard (`/`) — overall status, total repos, last backup time, current mode, and the most recent backup runs. Background turns green/red based on whether a successful backup occurred in the last 24h.
-- Repositories (`/repos`) — list of all known repos with provider, last sync time, last status, and a per-repo action (Browse for option1, ZIP archives for option2).
+- Repositories (`/repos`) — list of all known repos with provider, last sync time, last status, and a per-repo action (Browse for option1, ZIP archives for option2 and option3).
 - Backup runs (`/runs`) — chronological history of backup runs with totals, success/failure counts, and error summaries.
 - Browse (`/browse/<provider>/<owner>/<repo>/...`, option1 only) — read-only file/folder navigation of the cloned repo, with download as ZIP for files, folders, or the whole repo.
-- ZIP archives (`/zips/<provider>/<owner>/<repo>`, option2 only) — list of stored ZIP snapshots for a repo with size, date, and download link.
+- ZIP archives (`/zips/<provider>/<owner>/<repo>`, option2 and option3) — list of stored ZIP snapshots for a repo with size, date, and download link.
+- Logs (`/logs`) — live view of the structured JSONL log (`/data/gitecho.log`) with filtering by level (debug/info/warn/error), source (server/worker), and free-text search, plus a download button for the rotated log files.
 
 ### Unavailable upstream repositories
 
@@ -117,32 +118,94 @@ successful backup transitions the repository back to `success`.
 
 ## Environment Variables
 
+GitEcho is configured in two places:
+
+- **Settings UI** (`/settings`) — the recommended place for anything secret or
+  anything you may want to change at runtime: PATs, PAT expiration dates,
+  Azure DevOps org, SMTP credentials, backup mode, cron schedule, discovery
+  filters, and notification toggles. Persisted to `/config/settings.json` and
+  AES-256-GCM-encrypted `/config/secrets.json`.
+- **Environment variables** — container-level bootstrap that the UI cannot
+  change: where to bind mounts, how to gate the UI itself, and the encryption
+  key for the secrets file.
+
+Configuration precedence is **builtin defaults < environment variables <
+`settings.json` < `secrets.json`**, so values set in the UI always win over
+the environment.
+
+### Recommended (set via environment)
+
 | Variable | Required | Description | Example |
 |---|---|---|---|
-| `GITHUB_PAT` | Yes* | Personal Access Token for GitHub | `ghp_xxxxxxxxxxxx` |
-| `AZUREDEVOPS_PAT` | Yes* | Personal Access Token for Azure DevOps | `xxxxxxxxxxxxxxxx` |
-| `GITHUB_PAT_EXPIRES` | Yes* | Expiration date of the GitHub PAT (ISO 8601) | `2026-06-01` |
-| `AZUREDEVOPS_PAT_EXPIRES` | Yes* | Expiration date of the Azure DevOps PAT (ISO 8601) | `2026-06-01` |
-| `AZUREDEVOPS_ORG` | No | Azure DevOps organization (bare name or full URL). If unset, the org is inferred from the first Azure DevOps URL in `repos.txt`. | `myorg` or `https://dev.azure.com/myorg` |
-| `BACKUP_MODE` | No | Backup strategy: `option1` (git pull), `option2` (ZIP snapshots), or `option3` (mirror clone + ZIP snapshots — strongest revision safety) | `option1` |
-| `CRON_SCHEDULE` | No | Cron expression for backup cycle | `0 2 * * *` |
-| `SMTP_HOST` | No | SMTP server hostname for email notifications | `smtp.example.com` |
-| `SMTP_PORT` | No | SMTP server port | `587` |
-| `SMTP_USER` | No | SMTP authentication username | `alerts@example.com` |
-| `SMTP_PASS` | No | SMTP authentication password | `secret` |
-| `SMTP_FROM` | No | Sender address for notification emails | `gitecho@example.com` |
-| `SMTP_TO` | No | Recipient address(es) for notifications | `admin@example.com` |
-| `NOTIFY_ON_SUCCESS` | No | Send email on successful backup runs | `false` |
-| `PAT_EXPIRY_WARN_DAYS` | No | Days before PAT expiry to start warning | `14` |
-| `DATA_DIR` | No | Override the data mount path (SQLite database, sync metadata) | `/data` |
-| `CONFIG_DIR` | No | Override the config mount path (`repos.txt`, `settings.json`, `secrets.json`) | `/config` |
-| `BACKUPS_DIR` | No | Override the backups mount path (cloned repos / ZIPs) | `/backups` |
-| `UI_USER` | No (recommended) | Username for the Web UI HTTP Basic Auth. Auth is enforced only when both `UI_USER` and `UI_PASS` are set. | `admin` |
-| `UI_PASS` | No (recommended) | Password for the Web UI HTTP Basic Auth | `change-me` |
-| `PUBLIC_URL` | No (required behind reverse proxies) | Comma-separated list of URLs under which the UI is reachable. Browser requests whose `Origin` matches an entry here are accepted for state-changing operations. Include scheme + host (+ port). Without this, requests coming through a proxy that rewrites the host (Synology DSM portal, Traefik, nginx, subdomains) may be rejected with **403**. | `https://gitecho.example.com,https://nas.local:5000` |
-| `MASTER_KEY` | Required to use the Settings UI for secrets | 32-byte key (hex or base64) used to encrypt PATs and SMTP password at rest. Generate with `openssl rand -hex 32`. **If you lose it, all stored secrets are unrecoverable.** | `7f...` (64 hex chars) |
+| `MASTER_KEY` | Yes (for Settings UI secrets) | 32-byte key (hex or base64) used to encrypt PATs and the SMTP password at rest. Generate with `openssl rand -hex 32`. **If you lose it, all stored secrets are unrecoverable.** | `7f...` (64 hex chars) |
+| `UI_USER` | Recommended | Username for the Web UI HTTP Basic Auth. Auth is enforced only when both `UI_USER` and `UI_PASS` are set. | `admin` |
+| `UI_PASS` | Recommended | Password for the Web UI HTTP Basic Auth. | `change-me` |
+| `PUBLIC_URL` | Required behind a reverse proxy | Comma-separated list of external URLs under which the UI is reachable (scheme + host + port). Browser requests whose `Origin` matches an entry here are accepted for state-changing operations. Without this, requests through a proxy that rewrites the host (Synology DSM portal, Traefik, nginx, subdomains) may be rejected with **403**. | `https://gitecho.example.com,https://nas.local:5000` |
+| `DATA_DIR` | No | Override the data mount path (SQLite database, sync metadata). | `/data` |
+| `CONFIG_DIR` | No | Override the config mount path (`repos.txt`, `settings.json`, `secrets.json`). | `/config` |
+| `BACKUPS_DIR` | No | Override the backups mount path (cloned repos / ZIPs). | `/backups` |
+| `LOG_LEVEL` | No | Default log level (`debug`, `info`, `warn`, `error`). Overridden by the value set in the Settings UI if present. | `info` |
+| `LOG_MAX_BYTES` | No | Size threshold in bytes at which `/data/gitecho.log` is rotated. Up to 5 archives (`gitecho.log.1` … `gitecho.log.5`) are kept. | `10485760` (10 MB) |
 
-\* At least one provider PAT and its corresponding expiration date are required — either via env vars or via the Settings UI.
+### Configure in the Settings UI
+
+These used to be environment variables and are still accepted as a fallback
+(useful for first boot or fully-declarative deployments), but the Settings UI
+is the preferred place — PATs go into the encrypted secrets store and
+expiration dates, SMTP credentials, cron schedule, etc. can be rotated
+without recreating the container.
+
+| Setting | UI location | Env fallback |
+|---|---|---|
+| GitHub PAT + expiration date | `/settings/providers` → GitHub | `GITHUB_PAT`, `GITHUB_PAT_EXPIRES` |
+| Azure DevOps PAT + expiration date + organization | `/settings/providers` → Azure DevOps | `AZUREDEVOPS_PAT`, `AZUREDEVOPS_PAT_EXPIRES`, `AZUREDEVOPS_ORG` |
+| SMTP host / port / user / password / from / to | `/settings/smtp` | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_TO` |
+| Backup mode (`option1` / `option2` / `option3`) | `/settings/general` | `BACKUP_MODE` |
+| Cron schedule | `/settings/general` | `CRON_SCHEDULE` |
+| Notify on successful backups | `/settings/smtp` | `NOTIFY_ON_SUCCESS` |
+| PAT-expiry warning window (days) | `/settings/smtp` | `PAT_EXPIRY_WARN_DAYS` |
+
+### Required PAT scopes
+
+The same guidance is shown inline next to the input field on
+`/settings/providers`, so you don't have to switch windows when rotating a
+token.
+
+**GitHub**
+
+- **Classic PAT:** `repo` (full — needed to clone private repos) and
+  `read:org` (to list org-owned repos via `gh repo list`). A single classic
+  PAT sees every private repo your GitHub account has access to — your own
+  repos, repos in orgs you belong to, and repos in other users' accounts
+  where you're a collaborator.
+- **Fine-grained PAT:** Repository permissions → *Contents: Read* and
+  *Metadata: Read*. Grant access to **all repositories** (or all in the
+  target org) you want backed up — a fine-grained PAT only sees repos it
+  was explicitly granted access to. Fine-grained PATs are scoped to a
+  single resource owner and don't support cross-account collaborator
+  access — use a classic PAT if you need to back up repos from multiple
+  owners.
+- **SAML SSO:** if an org enforces SSO, open the token on
+  <https://github.com/settings/tokens> and click *Configure SSO* →
+  *Authorize* for each org. Without this, that org's repos stay invisible
+  to the PAT even though you personally have access.
+
+Create tokens at <https://github.com/settings/tokens>.
+
+**Azure DevOps**
+
+- **Code** → *Read* (clone + list repos per project)
+- **Project and Team** → *Read* (list all projects in the org)
+- Set **Organization** to *All accessible organizations* (or the specific
+  one) when creating the PAT.
+- Azure DevOps PATs are scoped to one organization at creation time. To
+  back up repos from **additional orgs**, list them in `repos.txt` with
+  their full `https://dev.azure.com/<other-org>/<project>/_git/<repo>`
+  URL; the same PAT authenticates as long as it was issued with *All
+  accessible organizations*. If the orgs live in different Entra tenants,
+  create one PAT per tenant and run separate GitEcho instances.
+
+Create tokens at `https://dev.azure.com/<your-org>/_usersSettings/tokens`.
 
 **Defaults:** `BACKUP_MODE=option1`, `CRON_SCHEDULE=0 2 * * *` (daily at 2 AM), `PAT_EXPIRY_WARN_DAYS=14`, `NOTIFY_ON_SUCCESS=false`.
 
@@ -180,15 +243,17 @@ Configuration precedence is **builtin defaults < environment variables < `settin
 docker run -d \
   --name gitecho \
   -p 3000:3000 \
-  -e GITHUB_PAT=ghp_xxxxxxxxxxxx \
-  -e GITHUB_PAT_EXPIRES=2026-06-01 \
-  -e BACKUP_MODE=option1 \
-  -e CRON_SCHEDULE="0 2 * * *" \
+  -e MASTER_KEY="$(openssl rand -hex 32)" \
+  -e UI_USER=admin \
+  -e UI_PASS=change-me \
   -v gitecho-data:/data \
   -v gitecho-config:/config \
   -v gitecho-backups:/backups \
   gitecho:latest
 ```
+
+Then open <http://localhost:3000/settings> and configure provider PATs,
+SMTP, backup mode, and cron schedule from the UI.
 
 ### Docker Compose
 
@@ -201,28 +266,19 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Provider tokens
-      GITHUB_PAT: ghp_xxxxxxxxxxxx
-      GITHUB_PAT_EXPIRES: "2026-06-01"
-      AZUREDEVOPS_PAT: xxxxxxxxxxxxxxxx
-      AZUREDEVOPS_PAT_EXPIRES: "2026-06-01"
+      # Encrypts PATs + SMTP password stored via the Settings UI.
+      # Generate once with: openssl rand -hex 32
+      MASTER_KEY: "replace-with-64-hex-chars"
 
-      # Backup settings
-      BACKUP_MODE: option1
-      CRON_SCHEDULE: "0 2 * * *"
+      # HTTP Basic Auth for the Web UI (strongly recommended)
+      UI_USER: admin
+      UI_PASS: change-me
 
-      # Email notifications (optional)
-      SMTP_HOST: smtp.example.com
-      SMTP_PORT: 587
-      SMTP_USER: alerts@example.com
-      SMTP_PASS: secret
-      SMTP_FROM: gitecho@example.com
-      SMTP_TO: admin@example.com
-      NOTIFY_ON_SUCCESS: false
-      PAT_EXPIRY_WARN_DAYS: 14
+      # Required when running behind a reverse proxy that rewrites the host.
+      # PUBLIC_URL: "https://gitecho.example.com"
     volumes:
       - gitecho-data:/data       # SQLite database
-      - gitecho-config:/config   # Repository list
+      - gitecho-config:/config   # repos.txt, settings.json, encrypted secrets.json
       - gitecho-backups:/backups # Cloned repos or ZIP archives
 
 volumes:
@@ -231,13 +287,20 @@ volumes:
   gitecho-backups:
 ```
 
+Everything else — GitHub / Azure DevOps PATs and their expiration dates,
+SMTP credentials, backup mode, cron schedule, discovery filters — is
+configured at runtime under `/settings` and persisted to the `/config`
+volume. The legacy `GITHUB_PAT` / `AZUREDEVOPS_PAT` / `SMTP_*` /
+`BACKUP_MODE` / `CRON_SCHEDULE` environment variables are still honored as
+a fallback if you prefer a fully declarative deployment.
+
 ### Mount Points
 
 | Path | Purpose |
 |---|---|
-| `/data` | Local SQLite database (`gitecho.db`) with repos, backup runs, items, and sync metadata |
+| `/data` | Local SQLite database (`gitecho.db`), structured log file (`gitecho.log` + rotated archives), and sync metadata |
 | `/config` | `repos.txt` — text file containing repository URLs to back up |
-| `/backups` | Cloned repositories (option1) or ZIP archives (option2) |
+| `/backups` | Cloned repositories (option1), ZIP archives (option2), or bare mirror + ZIP snapshots (option3) |
 
 ### Upgrading
 

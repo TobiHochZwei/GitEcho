@@ -252,6 +252,67 @@ function source(): string {
   return process.env.GITECHO_PROCESS || 'server';
 }
 
+// ---------------------------------------------------------------------------
+// Timestamp formatting — honours the container TZ env var.
+//
+// `Date#toISOString()` is hard-coded to UTC, which means log timestamps always
+// read as UTC regardless of `TZ=Europe/Berlin` etc. We emit an ISO-8601 string
+// carrying the local offset (e.g. `2026-04-24T17:19:05.775+02:00`) so:
+//   - the Docker console mirror and the UI both show local wall-clock time
+//   - lexicographic ordering (used by queryLogs' `before` cursor) stays
+//     monotone within a fixed offset — the common case
+//   - the file remains valid JSONL with a parseable `ts` field
+// ---------------------------------------------------------------------------
+
+/** Format `d` as an ISO-8601 timestamp in the given IANA timezone. */
+function formatIsoInZone(d: Date, timeZone: string): string {
+  // Intl gives us the wall-clock parts in the target zone. We need the offset
+  // separately to build a valid ISO string.
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+  const map: Record<string, string> = {};
+  for (const p of parts) map[p.type] = p.value;
+  // `hour` can be '24' in en-US for midnight — normalise to '00'.
+  const hour = map.hour === '24' ? '00' : map.hour;
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+
+  // Compute the zone offset by diffing the zone's wall time from UTC.
+  const asUtc = Date.UTC(
+    Number(map.year),
+    Number(map.month) - 1,
+    Number(map.day),
+    Number(hour),
+    Number(map.minute),
+    Number(map.second),
+  );
+  const offsetMin = Math.round((asUtc - d.getTime()) / 60000);
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const abs = Math.abs(offsetMin);
+  const oh = String(Math.floor(abs / 60)).padStart(2, '0');
+  const om = String(abs % 60).padStart(2, '0');
+
+  return `${map.year}-${map.month}-${map.day}T${hour}:${map.minute}:${map.second}.${ms}${sign}${oh}:${om}`;
+}
+
+export function localIsoTimestamp(): string {
+  const tz = process.env.TZ;
+  if (!tz) return new Date().toISOString();
+  try {
+    return formatIsoInZone(new Date(), tz);
+  } catch {
+    // Invalid IANA name — fall back to UTC.
+    return new Date().toISOString();
+  }
+}
+
 function formatMessage(args: unknown[]): { message: string; meta?: Record<string, unknown> } {
   // Mirror console.* semantics: concatenate string-ish, capture an Error if present.
   const parts: string[] = [];
@@ -277,7 +338,7 @@ function log(level: LogLevel, args: unknown[]): void {
   if (LEVELS[level] < LEVELS[effectiveLevel()]) return;
   const { message, meta } = formatMessage(args);
   writeEntry({
-    ts: new Date().toISOString(),
+    ts: localIsoTimestamp(),
     level,
     source: source(),
     pid: process.pid,

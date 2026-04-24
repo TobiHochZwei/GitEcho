@@ -167,7 +167,11 @@ const currentLevel = settings.logLevel ?? effectiveLevel();
     for (const e of entries) {
       const tr = document.createElement('tr');
       const msg = e.meta ? `${escapeHtml(e.message)} <span class="text-secondary">${escapeHtml(JSON.stringify(e.meta))}</span>` : escapeHtml(e.message);
-      tr.innerHTML = `<td>${escapeHtml(e.ts.replace('T', ' ').replace('Z', ''))}</td><td>${levelBadge(e.level)}</td><td>${escapeHtml(e.source)}</td><td style="white-space: pre-wrap;">${msg}</td>`;
+      // Display: strip T separator and trailing zone marker (Z or ±HH:MM) for a
+      // compact "YYYY-MM-DD HH:MM:SS.mmm" form. Keep the raw value (including
+      // the offset, so Europe/Berlin shows +02:00) in the cell tooltip.
+      const tsDisplay = e.ts.replace('T', ' ').replace(/(Z|[+-]\d{2}:?\d{2})$/, '');
+      tr.innerHTML = `<td title="${escapeHtml(e.ts)}">${escapeHtml(tsDisplay)}</td><td>${levelBadge(e.level)}</td><td>${escapeHtml(e.source)}</td><td style="white-space: pre-wrap;">${msg}</td>`;
       frag.appendChild(tr);
     }
     body.appendChild(frag);

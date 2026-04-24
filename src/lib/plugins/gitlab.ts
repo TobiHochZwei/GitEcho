@@ -216,6 +216,9 @@ export class GitLabPlugin implements ProviderPlugin {
     const url = this.getAuthenticatedUrl(repoUrl);
     const canonicalUrl = repoUrl.replace(/\.git$/, '');
     const trace = await safeLookupDebugTrace(canonicalUrl);
+    logger.info(
+      `[gitlab] Clone "${repoUrl}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
+    );
     try {
       await retry(
         async () => {
@@ -275,6 +278,10 @@ export class GitLabPlugin implements ProviderPlugin {
     const trace = canonical
       ? await safeLookupDebugTrace(canonical)
       : { enabled: false, id: null };
+
+    logger.info(
+      `[gitlab] Pull "${repoDir}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
+    );
 
     try {
       if (trace.enabled) {

@@ -180,6 +180,9 @@ export class GitHubPlugin implements ProviderPlugin {
     // DB so the debug-trace lookup hits the right row.
     const canonicalUrl = repoUrl.replace(/\.git$/, '');
     const trace = await safeLookupDebugTrace(canonicalUrl);
+    logger.info(
+      `[github] Clone "${repoUrl}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
+    );
     try {
       await retry(
         async () => {
@@ -244,6 +247,10 @@ export class GitHubPlugin implements ProviderPlugin {
     const trace = canonical
       ? await safeLookupDebugTrace(canonical)
       : { enabled: false, id: null };
+
+    logger.info(
+      `[github] Pull "${repoDir}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
+    );
 
     try {
       // `--prune` ensures deleted upstream branches disappear from

@@ -59,19 +59,37 @@ function gitArgs(...args: string[]): string[] {
  * failures here must never break a backup — tracing is strictly
  * diagnostic.
  */
-async function safeLookupDebugTrace(
-  repoUrl: string,
-): Promise<{ enabled: boolean; id: number | null }> {
-  // The backup engine passes a URL with embedded `user:pat@host` credentials
-  // into cloneRepository(); the repositories.url column stores the canonical,
-  // credential-free form. Strip any embedded creds before the exact-match
-  // lookup — otherwise trace is silently never activated for new clones.
-  const canonical = repoUrl.replace(
+/**
+ * Produce the canonical, credential-free URL that `listRepositories()` stores
+ * in the repositories.url column. Must be applied before any exact-match
+ * lookup against that column — otherwise small cosmetic differences (legacy
+ * `*.visualstudio.com` host, trailing `.git`, trailing slash, embedded PAT)
+ * silently miss the row.
+ */
+function canonicalRepoUrl(repoUrl: string): string {
+  // 1. Strip embedded `user:pat@host` credentials.
+  const noCreds = repoUrl.replace(
     /^(https?:\/\/)[^/@\s]+(?::[^/@\s]*)?@/i,
     '$1',
   );
+  // 2. Rewrite legacy visualstudio.com → dev.azure.com.
+  const normalized = normalizeRepoUrl(noCreds);
+  // 3. Drop trailing `.git` and trailing slashes.
+  return normalized.replace(/\.git$/i, '').replace(/\/+$/, '');
+}
+
+async function safeLookupDebugTrace(
+  repoUrl: string,
+): Promise<{ enabled: boolean; id: number | null }> {
+  const canonical = canonicalRepoUrl(repoUrl);
   try {
-    return getRepositoryDebugTraceByUrl(canonical);
+    const result = getRepositoryDebugTraceByUrl(canonical);
+    if (result.id === null) {
+      logger.debug(
+        `[azuredevops] debug_trace lookup miss for canonical URL "${canonical}" (original "${redactSecrets(repoUrl)}")`,
+      );
+    }
+    return result;
   } catch (err) {
     logger.warn(
       `[azuredevops] Failed to look up debug_trace flag for "${canonical}":`,
@@ -386,6 +404,9 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
   async cloneRepository(repoUrl: string, targetDir: string): Promise<void> {
     const authenticatedUrl = this.getAuthenticatedUrl(repoUrl);
     const trace = await safeLookupDebugTrace(repoUrl);
+    logger.info(
+      `[azuredevops] Clone "${repoUrl}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
+    );
     try {
       await retry(
         async () => {
@@ -447,13 +468,14 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
     })
       .then(({ stdout }) => stdout.trim())
       .catch(() => '');
-    // Strip any embedded PAT before the DB lookup — the row stores the
-    // canonical, credential-free URL.
-    const canonical = originUrl.replace(
-      /^(https:\/\/)[^/@\s]+(?::[^/@\s]+)?@/i,
-      '$1',
+    // Canonicalise (strip PAT, rewrite legacy host, drop `.git`/trailing `/`)
+    // so the lookup matches the form stored in repositories.url.
+    const trace = originUrl
+      ? await safeLookupDebugTrace(originUrl)
+      : { enabled: false, id: null };
+    logger.info(
+      `[azuredevops] Pull "${repoDir}" — debug trace ${trace.enabled ? 'enabled' : 'disabled'}`,
     );
-    const trace = canonical ? await safeLookupDebugTrace(canonical) : { enabled: false, id: null };
 
     try {
       // `--prune` ensures deleted upstream branches disappear from

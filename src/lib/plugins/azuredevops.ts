@@ -62,11 +62,19 @@ function gitArgs(...args: string[]): string[] {
 async function safeLookupDebugTrace(
   repoUrl: string,
 ): Promise<{ enabled: boolean; id: number | null }> {
+  // The backup engine passes a URL with embedded `user:pat@host` credentials
+  // into cloneRepository(); the repositories.url column stores the canonical,
+  // credential-free form. Strip any embedded creds before the exact-match
+  // lookup — otherwise trace is silently never activated for new clones.
+  const canonical = repoUrl.replace(
+    /^(https?:\/\/)[^/@\s]+(?::[^/@\s]*)?@/i,
+    '$1',
+  );
   try {
-    return getRepositoryDebugTraceByUrl(repoUrl);
+    return getRepositoryDebugTraceByUrl(canonical);
   } catch (err) {
     logger.warn(
-      `[azuredevops] Failed to look up debug_trace flag for "${repoUrl}":`,
+      `[azuredevops] Failed to look up debug_trace flag for "${canonical}":`,
       err instanceof Error ? err.message : err,
     );
     return { enabled: false, id: null };

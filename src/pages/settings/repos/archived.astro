@@ -13,8 +13,11 @@ import Layout from '../../../layouts/Layout.astro';
 import Card from '../../../components/Card.astro';
 import { getRepositories, type Repository } from '../../../lib/database.js';
 import { loadConfig } from '../../../lib/config.js';
+import { inspectBackupLock } from '../../../lib/backup-lock.js';
 
 const cfg = loadConfig();
+const activeLock = inspectBackupLock();
+const backupRunning = activeLock !== undefined;
 
 let archived: Repository[] = [];
 let loadError: string | null = null;
@@ -65,6 +68,17 @@ function archiveStats(rel: string | null): { size: string; exists: boolean } {
       permanently.
     </div>
   </div>
+
+  {backupRunning && (
+    <div class="alert alert-info d-flex gap-3" role="alert">
+      <i class="bi bi-hourglass-split fs-4"></i>
+      <div class="small">
+        A backup cycle is currently running{activeLock?.startedAt ? ` (started ${activeLock.startedAt})` : ''}.
+        Reactivate and delete are disabled until it finishes. Reload the
+        page once the run completes.
+      </div>
+    </div>
+  )}
 
   <Card title={`Archived (${archived.length})`} icon="bi-archive">
     {loadError && (
@@ -124,10 +138,22 @@ function archiveStats(rel: string | null): { size: string; exists: boolean } {
                           <i class="bi bi-download me-1"></i>Download
                         </button>
                       )}
-                      <button type="button" class="btn btn-outline-success" data-action="unarchive">
+                      <button
+                        type="button"
+                        class="btn btn-outline-success"
+                        data-action="unarchive"
+                        disabled={backupRunning}
+                        title={backupRunning ? 'Wait for the running backup to finish' : undefined}
+                      >
                         <i class="bi bi-arrow-counterclockwise me-1"></i>Reactivate
                       </button>
-                      <button type="button" class="btn btn-outline-danger" data-action="delete">
+                      <button
+                        type="button"
+                        class="btn btn-outline-danger"
+                        data-action="delete"
+                        disabled={backupRunning}
+                        title={backupRunning ? 'Wait for the running backup to finish' : undefined}
+                      >
                         <i class="bi bi-trash me-1"></i>Delete
                       </button>
                     </div>
@@ -244,7 +270,11 @@ function archiveStats(rel: string | null): { size: string; exists: boolean } {
         setTimeout(() => location.reload(), 400);
       } else {
         const j = await res.json().catch(() => ({}));
-        toast(`Delete failed: ${j.error ?? res.statusText}`, 'danger');
+        if (res.status === 409) {
+          toast('A backup cycle is currently running — please wait until it finishes.', 'danger');
+        } else {
+          toast(`Delete failed: ${j.error ?? res.statusText}`, 'danger');
+        }
         deleteConfirmBtn.disabled = false;
       }
     } catch (e) {
@@ -275,7 +305,11 @@ function archiveStats(rel: string | null): { size: string; exists: boolean } {
         setTimeout(() => location.reload(), 400);
       } else {
         const j = await res.json().catch(() => ({}));
-        toast(`Reactivate failed: ${j.error ?? res.statusText}`, 'danger');
+        if (res.status === 409) {
+          toast('A backup cycle is currently running — please wait until it finishes.', 'danger');
+        } else {
+          toast(`Reactivate failed: ${j.error ?? res.statusText}`, 'danger');
+        }
       }
     } catch (e) {
       toast(`Reactivate failed: ${(e as Error).message}`, 'danger');

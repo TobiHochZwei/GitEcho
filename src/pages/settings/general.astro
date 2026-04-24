@@ -47,7 +47,7 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
   ]}
 >
   <div class="row">
-    <div class="col-12 col-lg-8">
+    <div class="col-12">
       <Card title="Backup configuration" icon="bi-sliders">
         <form id="general-form">
           <div class="mb-3">
@@ -67,12 +67,23 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
               <br />5 or 6 fields. Restart the worker container for this to take effect.
             </div>
           </div>
+          <div class="mb-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" id="runBackupOnStart" name="runBackupOnStart" checked={cfg.runBackupOnStart} />
+              <label class="form-check-label fw-semibold" for="runBackupOnStart">Run a backup immediately on container start</label>
+            </div>
+            <div class="form-text">
+              When enabled, the worker triggers a full backup cycle as soon as the container boots,
+              in addition to the cron schedule. Disabled by default — only the cron schedule runs.
+              Restart the worker container for this to take effect.
+            </div>
+          </div>
           <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save</button>
         </form>
       </Card>
     </div>
 
-    <div class="col-12 col-lg-8">
+    <div class="col-12">
       <Card title="Container timezone (TZ)" icon="bi-globe2">
         <p class="small text-secondary mb-2">
           Controls log timestamps, cron schedules and <code>Date</code> values
@@ -101,7 +112,7 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
       </Card>
     </div>
 
-    <div class="col-12 col-lg-8">
+    <div class="col-12">
       <Card title="Allowed origins (PUBLIC_URL)" icon="bi-shield-lock">
         <p class="small text-secondary mb-2">
           Cross-site POST/PUT/DELETE requests are rejected unless the browser's
@@ -165,12 +176,14 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
+    const runBackupOnStart = (document.getElementById('runBackupOnStart') as HTMLInputElement | null)?.checked ?? false;
     const res = await fetch('/api/settings/general', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         backupMode: fd.get('backupMode'),
         cronSchedule: fd.get('cronSchedule'),
+        runBackupOnStart,
       }),
     });
     const j = await res.json().catch(() => ({}));

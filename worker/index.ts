@@ -28,8 +28,12 @@ async function main(): Promise<void> {
     registerAllPlugins();
     logger.info('[Worker] Plugins registered');
 
-    logger.info('[Worker] Running initial backup...');
-    await executeBackupCycle();
+    if (config.runBackupOnStart) {
+      logger.info('[Worker] runBackupOnStart is enabled — running initial backup...');
+      await executeBackupCycle();
+    } else {
+      logger.info('[Worker] runBackupOnStart is disabled — waiting for cron schedule.');
+    }
 
     startScheduler();
 

@@ -76,6 +76,11 @@ export interface PersistedSettings {
   gitlab?: ProviderSettings;
   backupMode?: 'option1' | 'option2' | 'option3';
   cronSchedule?: string;
+  /**
+   * When true, the worker runs a full backup cycle immediately on boot, in
+   * addition to the cron schedule. Defaults to false so only the cron runs.
+   */
+  runBackupOnStart?: boolean;
   smtp?: SmtpSettings;
   notifyOnSuccess?: boolean;
   patExpiryWarnDays?: number;

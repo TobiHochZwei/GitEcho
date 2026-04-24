@@ -48,6 +48,8 @@ export interface AppConfig {
   gitlab?: ProviderConfig;
   backupMode: 'option1' | 'option2' | 'option3';
   cronSchedule: string;
+  /** Run a backup cycle immediately on worker startup. Defaults to false. */
+  runBackupOnStart: boolean;
   smtp?: SmtpConfig;
   notifyOnSuccess: boolean;
   patExpiryWarnDays: number;
@@ -211,6 +213,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const cronCandidate = settings.cronSchedule ?? env.CRON_SCHEDULE ?? '0 2 * * *';
   const cronSchedule = isValidCron(cronCandidate) ? cronCandidate : '0 2 * * *';
 
+  const runBackupOnStart =
+    settings.runBackupOnStart !== undefined
+      ? Boolean(settings.runBackupOnStart)
+      : parseBoolean(env.RUN_BACKUP_ON_START, false);
+
   const smtp = loadSmtpFromLayers(env);
 
   // Register all secrets with the logger so redaction works everywhere,
@@ -233,6 +240,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   }
 
   return {
+    runBackupOnStart,
     github,
     azureDevOps,
     gitlab,

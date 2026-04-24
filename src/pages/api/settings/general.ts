@@ -4,6 +4,7 @@ import { patchSettings } from '../../../lib/settings.js';
 interface GeneralInput {
   backupMode?: 'option1' | 'option2' | 'option3';
   cronSchedule?: string;
+  runBackupOnStart?: boolean;
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
 }
 
@@ -50,6 +51,7 @@ export const PUT: APIRoute = async ({ request }) => {
   patchSettings({
     backupMode: body.backupMode,
     cronSchedule: body.cronSchedule,
+    runBackupOnStart: typeof body.runBackupOnStart === 'boolean' ? body.runBackupOnStart : undefined,
     logLevel: body.logLevel,
   });
 

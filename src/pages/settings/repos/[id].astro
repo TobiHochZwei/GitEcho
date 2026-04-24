@@ -17,6 +17,7 @@ import {
   type RepositoryBackupHistoryEntry,
   type Repository,
 } from '../../../lib/database.js';
+import { inspectBackupLock } from '../../../lib/backup-lock.js';
 
 const { id: rawId } = Astro.params;
 const id = rawId ? Number.parseInt(rawId, 10) : NaN;
@@ -64,6 +65,8 @@ function statusBadge(status: string | null): { cls: string; label: string } {
 const pageTitle = repo ? `${repo.owner} / ${repo.name}` : 'Repository';
 const isSkipped = repo?.skip_backup === 1;
 const isTracing = repo?.debug_trace === 1;
+const activeLock = inspectBackupLock();
+const backupRunning = activeLock !== undefined;
 ---
 <Layout
   title={`GitEcho — ${pageTitle}`}
@@ -256,9 +259,26 @@ const isTracing = repo?.debug_trace === 1;
           Re-enabling an archived repository does <em>not</em> restore its
           historical backups.
         </p>
+        {backupRunning && (
+          <div class="alert alert-info small d-flex gap-2 py-2 mb-3" role="alert">
+            <i class="bi bi-hourglass-split"></i>
+            <div>
+              A backup cycle is currently running{activeLock?.startedAt ? ` (started ${activeLock.startedAt})` : ''}.
+              Archive and delete are disabled until it finishes to avoid
+              corrupting backup data. Reload the page once the run completes.
+            </div>
+          </div>
+        )}
         <div class="d-grid gap-2 d-md-flex">
           {!repo.archived ? (
-            <button type="button" class="btn btn-outline-warning" id="archive-btn" data-repo-name={repo.name}>
+            <button
+              type="button"
+              class="btn btn-outline-warning"
+              id="archive-btn"
+              data-repo-name={repo.name}
+              disabled={backupRunning}
+              title={backupRunning ? 'Wait for the running backup to finish' : undefined}
+            >
               <i class="bi bi-archive-fill me-1"></i>Archive repository
             </button>
           ) : (
@@ -266,7 +286,14 @@ const isTracing = repo?.debug_trace === 1;
               <i class="bi bi-archive-fill me-1"></i>Already archived{repo.archived_at ? ` on ${repo.archived_at}` : ''}
             </span>
           )}
-          <button type="button" class="btn btn-outline-danger" id="delete-btn" data-repo-name={repo.name}>
+          <button
+            type="button"
+            class="btn btn-outline-danger"
+            id="delete-btn"
+            data-repo-name={repo.name}
+            disabled={backupRunning}
+            title={backupRunning ? 'Wait for the running backup to finish' : undefined}
+          >
             <i class="bi bi-trash-fill me-1"></i>Delete repository permanently
           </button>
         </div>
@@ -523,7 +550,11 @@ const isTracing = repo?.debug_trace === 1;
           setTimeout(() => { window.location.href = '/settings/repos/archived'; }, 400);
         } else {
           const j = await res.json().catch(() => ({}));
-          toastFn(`Archive failed: ${j.error ?? res.statusText}`, 'danger');
+          if (res.status === 409) {
+            toastFn('A backup cycle is currently running — please wait until it finishes.', 'danger');
+          } else {
+            toastFn(`Archive failed: ${j.error ?? res.statusText}`, 'danger');
+          }
           archiveConfirmBtn.disabled = false;
         }
       } catch (e) {
@@ -561,7 +592,11 @@ const isTracing = repo?.debug_trace === 1;
           setTimeout(() => { window.location.href = '/settings/repos'; }, 400);
         } else {
           const j = await res.json().catch(() => ({}));
-          toastFn(`Delete failed: ${j.error ?? res.statusText}`, 'danger');
+          if (res.status === 409) {
+            toastFn('A backup cycle is currently running — please wait until it finishes.', 'danger');
+          } else {
+            toastFn(`Delete failed: ${j.error ?? res.statusText}`, 'danger');
+          }
           deleteConfirmBtn.disabled = false;
         }
       } catch (e) {

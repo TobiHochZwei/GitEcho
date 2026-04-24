@@ -16,7 +16,14 @@ import type { RepositoryInfo, ProviderPlugin } from '../plugins/interface';
 import { backupOption1 } from './option1';
 import { backupOption2 } from './option2';
 import { backupOption3 } from './option3';
-import { logger } from '../logger.js';
+import { logger, redactSecrets } from '../logger.js';
+import { collectPatExpiryWarnings, type PatWarning } from '../smtp.js';
+
+export interface NewRepoEntry {
+  provider: string;
+  providerDisplay: string;
+  repos: Array<{ url: string; owner: string; name: string }>;
+}
 
 export interface BackupResult {
   runId: number;
@@ -29,6 +36,10 @@ export interface BackupResult {
   failures: Array<{ repo: string; error: string }>;
   unavailable: Array<{ repo: string; url: string; error: string }>;
   backupMode: string;
+  /** Repositories seen for the first time during this run, grouped by provider. */
+  newRepos: NewRepoEntry[];
+  /** PAT expiry warnings captured at the start of the cycle. */
+  patWarnings: PatWarning[];
 }
 
 export async function runBackup(): Promise<BackupResult> {
@@ -53,11 +64,23 @@ export async function runBackup(): Promise<BackupResult> {
   let failedCount = 0;
   let unavailableCount = 0;
 
+  // PAT expiry — collect so the scheduler can include it in the single
+  // consolidated cycle email instead of firing separate notifications.
+  const patWarnings = collectPatExpiryWarnings();
+
   // Discover repositories from all configured plugins via the shared pipeline.
-  // This also persists new repos, applies filters, optionally appends to
-  // repos.txt, and emits the "new repos discovered" SMTP notification.
-  const discovery = await runDiscovery();
+  // Pass notify=false so the "new repos discovered" email is NOT sent from
+  // here — the scheduler folds this information into a single cycle report.
+  const discovery = await runDiscovery({ notify: false });
   const allRepos: Array<{ plugin: ProviderPlugin; repo: RepositoryInfo }> = discovery.repos;
+
+  const newRepos: NewRepoEntry[] = discovery.providers
+    .filter((p) => p.newlyDiscovered.length > 0)
+    .map((p) => ({
+      provider: p.provider,
+      providerDisplay: p.provider === 'azureDevOps' ? 'Azure DevOps' : 'GitHub',
+      repos: p.newlyDiscovered.map((r) => ({ url: r.url, owner: r.owner, name: r.name })),
+    }));
 
   for (const provider of discovery.providers) {
     if (!provider.authenticated) {
@@ -169,7 +192,8 @@ export async function runBackup(): Promise<BackupResult> {
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      const message = redactSecrets(rawMessage);
       if (isUpstreamUnavailable(err)) {
         unavailableCount++;
         unavailable.push({ repo: repoLabel, url: repo.url, error: message });
@@ -232,5 +256,7 @@ export async function runBackup(): Promise<BackupResult> {
     failures,
     unavailable,
     backupMode,
+    newRepos,
+    patWarnings,
   };
 }

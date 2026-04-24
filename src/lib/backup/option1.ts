@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { isUpstreamUnavailable } from '../plugins/errors';
 import type { ProviderPlugin, RepositoryInfo } from '../plugins/interface';
+import { redactSecrets } from '../logger.js';
 
 export async function backupOption1(
   plugin: ProviderPlugin,
@@ -37,7 +38,7 @@ export async function backupOption1(
 
     return { success: true };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = redactSecrets(err instanceof Error ? err.message : String(err));
     return { success: false, error: message, unavailable: isUpstreamUnavailable(err) };
   }
 }

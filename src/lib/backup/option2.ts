@@ -13,6 +13,7 @@ import archiver from 'archiver';
 import type { ProviderPlugin, RepositoryInfo } from '../plugins/interface';
 import { isUpstreamUnavailable } from '../plugins/errors';
 import { getRepositoryByUrl } from '../database';
+import { redactSecrets } from '../logger.js';
 
 function computeChecksum(filePath: string): string {
   const data = readFileSync(filePath);
@@ -74,7 +75,7 @@ export async function backupOption2(
 
     return { success: true, checksum, zipPath: finalZipPath };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = redactSecrets(err instanceof Error ? err.message : String(err));
     return { success: false, error: message, unavailable: isUpstreamUnavailable(err) };
   } finally {
     // Always clean up temp directory

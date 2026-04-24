@@ -27,7 +27,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { logger } from '../logger.js';
+import { logger, redactSecrets } from '../logger.js';
 
 import { getRepositoryByUrl } from '../database';
 import { isUpstreamUnavailable } from '../plugins/errors';
@@ -142,7 +142,7 @@ export async function backupOption3(
       }
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = redactSecrets(err instanceof Error ? err.message : String(err));
     return { success: false, error: message, unavailable: isUpstreamUnavailable(err) };
   }
 }

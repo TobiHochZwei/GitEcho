@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { getConfig } from './config.js';
-import { logger } from './logger.js';
+import { logger, redactSecrets } from './logger.js';
 
 export interface BackupSummary {
   startedAt: string;
@@ -12,6 +12,26 @@ export interface BackupSummary {
   skippedCount: number;
   backupMode: string;
   failures?: Array<{ repo: string; error: string }>;
+}
+
+export interface PatWarning {
+  provider: string;
+  expiresOn: string;
+  daysRemaining: number;
+  expired: boolean;
+}
+
+export interface BackupCycleReport {
+  summary: BackupSummary;
+  unavailable: Array<{ repo: string; url: string; error: string }>;
+  newRepos: Array<{
+    provider: string;
+    providerDisplay: string;
+    repos: Array<{ url: string; owner: string; name: string }>;
+  }>;
+  patWarnings: PatWarning[];
+  /** When set, the cycle ended with an uncaught error (e.g. engine crash). */
+  criticalError?: { message: string; context?: string };
 }
 
 let transporter: Transporter | undefined;
@@ -88,8 +108,8 @@ export async function sendNotification(subject: string, htmlBody: string): Promi
     await transport.sendMail({
       from: smtp!.from,
       to: smtp!.to,
-      subject,
-      html: htmlBody,
+      subject: redactSecrets(subject),
+      html: redactSecrets(htmlBody),
     });
     logger.info(`[smtp] Sent: ${subject}`);
   } catch (err) {
@@ -343,4 +363,239 @@ export async function checkAndNotifyPatExpiry(): Promise<void> {
       );
     }
   }
+}
+
+// ── Consolidated cycle report ────────────────────────────────────────
+//
+// Collect PAT expiry state without sending any email. The scheduler folds
+// the result into a single consolidated backup-cycle report so operators
+// don't get a mailbox-full of partial notifications per run.
+export function collectPatExpiryWarnings(): PatWarning[] {
+  const config = getConfig();
+  const now = new Date();
+  const warnings: PatWarning[] = [];
+
+  const providers: Array<{ name: string; config: { patExpires: Date } | undefined }> = [
+    { name: 'GitHub', config: config.github },
+    { name: 'Azure DevOps', config: config.azureDevOps },
+  ];
+
+  for (const provider of providers) {
+    if (!provider.config) continue;
+    const expires = provider.config.patExpires;
+    const diffMs = expires.getTime() - now.getTime();
+    const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+    if (daysRemaining <= 0) {
+      warnings.push({
+        provider: provider.name,
+        expiresOn: expires.toISOString().split('T')[0],
+        daysRemaining,
+        expired: true,
+      });
+    } else if (daysRemaining <= config.patExpiryWarnDays) {
+      warnings.push({
+        provider: provider.name,
+        expiresOn: expires.toISOString().split('T')[0],
+        daysRemaining,
+        expired: false,
+      });
+    }
+  }
+
+  return warnings;
+}
+
+/**
+ * Send exactly ONE email per backup cycle summarising everything that
+ * happened: PAT warnings, newly discovered repos, upstream-unavailable
+ * repos, failed repos, and overall success stats. All user-supplied fields
+ * are HTML-escaped, and the SMTP send path additionally runs redactSecrets()
+ * on the subject and body so PATs / passwords cannot leak.
+ */
+export async function notifyBackupCycleReport(report: BackupCycleReport): Promise<void> {
+  const { summary, unavailable, newRepos, patWarnings, criticalError } = report;
+  const { notifyOnSuccess } = getConfig();
+
+  // Decide whether to send at all. Always send when something needs attention
+  // (failures, unavailable repos, PAT issues, new repos, critical errors).
+  const hasAttentionItems =
+    summary.failedCount > 0 ||
+    unavailable.length > 0 ||
+    patWarnings.length > 0 ||
+    newRepos.length > 0 ||
+    Boolean(criticalError);
+
+  if (!hasAttentionItems && !notifyOnSuccess) {
+    logger.debug('[smtp] Cycle completed cleanly and NOTIFY_ON_SUCCESS=false — no email sent');
+    return;
+  }
+
+  const started = new Date(summary.startedAt);
+  const completed = new Date(summary.completedAt);
+  const durationSec = Math.max(0, Math.round((completed.getTime() - started.getTime()) / 1000));
+  const durationStr =
+    durationSec >= 60 ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s` : `${durationSec}s`;
+
+  // ── Status banner ──────────────────────────────────────────────
+  let bannerColor = '#1a7f37';
+  let bannerBg = '#dafbe1';
+  let statusLabel = 'Completed successfully';
+  let subjectIcon = '✅';
+
+  if (criticalError) {
+    bannerColor = '#cf222e';
+    bannerBg = '#ffe2e0';
+    statusLabel = 'Cycle crashed';
+    subjectIcon = '🚨';
+  } else if (summary.failedCount > 0 && summary.successCount === 0) {
+    bannerColor = '#cf222e';
+    bannerBg = '#ffe2e0';
+    statusLabel = 'All repositories failed';
+    subjectIcon = '🚨';
+  } else if (summary.failedCount > 0 || unavailable.length > 0 || patWarnings.some((w) => w.expired)) {
+    bannerColor = '#bf8700';
+    bannerBg = '#fff8c5';
+    statusLabel = 'Completed with issues';
+    subjectIcon = '⚠️';
+  }
+
+  const banner = `
+    <div style="background:${bannerBg};border-left:4px solid ${bannerColor};padding:12px 16px;border-radius:4px;margin-bottom:16px">
+      <span style="font-size:14px;font-weight:600;color:${bannerColor}">${statusLabel}</span>
+    </div>`;
+
+  // ── Critical error (optional) ──────────────────────────────────
+  const criticalBlock = criticalError
+    ? `<h3 style="margin:20px 0 8px;font-size:15px;color:#cf222e">Critical error</h3>
+       <pre style="background:#f6f8fa;padding:16px;border-radius:6px;overflow-x:auto;font-size:13px;color:#24292f;border:1px solid #d0d7de;white-space:pre-wrap;word-break:break-word">${escapeHtml(criticalError.message)}</pre>
+       ${
+         criticalError.context
+           ? `<pre style="background:#f6f8fa;padding:16px;border-radius:6px;overflow-x:auto;font-size:12px;color:#656d76;border:1px solid #d0d7de;white-space:pre-wrap;word-break:break-word">${escapeHtml(criticalError.context)}</pre>`
+           : ''
+       }`
+    : '';
+
+  // ── Summary table ──────────────────────────────────────────────
+  const summaryTable = `
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d0d7de;border-radius:6px;border-collapse:collapse;margin-bottom:16px">
+      <tr style="background:#f6f8fa">
+        <th style="padding:8px 12px;text-align:left;font-size:13px;border-bottom:1px solid #d0d7de">Metric</th>
+        <th style="padding:8px 12px;text-align:left;font-size:13px;border-bottom:1px solid #d0d7de">Value</th>
+      </tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px">Total repositories</td><td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px;font-weight:600">${summary.totalRepos}</td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px">Successful</td><td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px;color:#1a7f37;font-weight:600">${summary.successCount}</td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px">Failed</td><td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px;color:${summary.failedCount > 0 ? '#cf222e' : '#24292f'};font-weight:600">${summary.failedCount}</td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px">Unavailable upstream</td><td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px;color:${unavailable.length > 0 ? '#bf8700' : '#24292f'};font-weight:600">${unavailable.length}</td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px">Backup mode</td><td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px">${escapeHtml(summary.backupMode)}</td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px">Duration</td><td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px">${durationStr}</td></tr>
+      <tr><td style="padding:8px 12px;font-size:13px">Started</td><td style="padding:8px 12px;font-size:13px">${escapeHtml(summary.startedAt)}</td></tr>
+    </table>`;
+
+  // ── PAT warnings ───────────────────────────────────────────────
+  const patBlock = patWarnings.length
+    ? `<h3 style="margin:20px 0 8px;font-size:15px;color:#bf8700">PAT expiry</h3>
+       <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d0d7de;border-radius:6px;border-collapse:collapse;margin-bottom:16px">
+         <tr style="background:#f6f8fa">
+           <th style="padding:8px 12px;text-align:left;font-size:13px;border-bottom:1px solid #d0d7de">Provider</th>
+           <th style="padding:8px 12px;text-align:left;font-size:13px;border-bottom:1px solid #d0d7de">Expires on</th>
+           <th style="padding:8px 12px;text-align:left;font-size:13px;border-bottom:1px solid #d0d7de">Status</th>
+         </tr>
+         ${patWarnings
+           .map(
+             (w) =>
+               `<tr>
+                  <td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px">${escapeHtml(w.provider)}</td>
+                  <td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px">${escapeHtml(w.expiresOn)}</td>
+                  <td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px;color:${w.expired ? '#cf222e' : '#bf8700'};font-weight:600">${w.expired ? 'EXPIRED' : `${w.daysRemaining} day${w.daysRemaining === 1 ? '' : 's'} remaining`}</td>
+                </tr>`,
+           )
+           .join('')}
+       </table>`
+    : '';
+
+  // ── New repositories ───────────────────────────────────────────
+  const newReposBlock = newRepos.length
+    ? newRepos
+        .map(
+          (entry) =>
+            `<h3 style="margin:20px 0 8px;font-size:15px;color:#0969da">New ${escapeHtml(entry.providerDisplay)} repositories (${entry.repos.length})</h3>
+             <ul style="padding-left:20px;margin:8px 0 16px;font-size:14px;color:#24292f">
+               ${entry.repos
+                 .map(
+                   (r) =>
+                     `<li style="margin-bottom:4px"><a href="${escapeHtml(r.url)}" style="color:#0969da;text-decoration:none">${escapeHtml(r.owner)}/${escapeHtml(r.name)}</a></li>`,
+                 )
+                 .join('')}
+             </ul>`,
+        )
+        .join('')
+    : '';
+
+  // ── Failures ───────────────────────────────────────────────────
+  const failures = summary.failures ?? [];
+  const failureBlock = failures.length
+    ? `<h3 style="margin:20px 0 8px;font-size:15px;color:#cf222e">Failed repositories (${failures.length})</h3>
+       <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d0d7de;border-radius:6px;border-collapse:collapse;margin-bottom:16px">
+         <tr style="background:#f6f8fa">
+           <th style="padding:8px 12px;text-align:left;font-size:13px;border-bottom:1px solid #d0d7de">Repository</th>
+           <th style="padding:8px 12px;text-align:left;font-size:13px;border-bottom:1px solid #d0d7de">Error</th>
+         </tr>
+         ${failures
+           .map(
+             (f) =>
+               `<tr>
+                  <td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px">${escapeHtml(f.repo)}</td>
+                  <td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px;color:#cf222e;word-break:break-word">${escapeHtml(f.error)}</td>
+                </tr>`,
+           )
+           .join('')}
+       </table>`
+    : '';
+
+  // ── Unavailable upstream ───────────────────────────────────────
+  const unavailableBlock = unavailable.length
+    ? `<h3 style="margin:20px 0 8px;font-size:15px;color:#bf8700">Upstream unavailable (${unavailable.length})</h3>
+       <p style="margin:0 0 8px;font-size:13px;color:#656d76">
+         These repositories appear deleted, renamed, made private, or no longer accessible with the current credentials. Existing local backups are kept untouched.
+       </p>
+       <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d0d7de;border-radius:6px;border-collapse:collapse;margin-bottom:16px">
+         <tr style="background:#f6f8fa">
+           <th style="padding:8px 12px;text-align:left;font-size:13px;border-bottom:1px solid #d0d7de">Repository</th>
+           <th style="padding:8px 12px;text-align:left;font-size:13px;border-bottom:1px solid #d0d7de">Error</th>
+         </tr>
+         ${unavailable
+           .map(
+             (u) =>
+               `<tr>
+                  <td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px"><a href="${escapeHtml(u.url)}" style="color:#0969da;text-decoration:none">${escapeHtml(u.repo)}</a></td>
+                  <td style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:13px;color:#bf8700;word-break:break-word">${escapeHtml(u.error)}</td>
+                </tr>`,
+           )
+           .join('')}
+       </table>`
+    : '';
+
+  const body = `
+    ${banner}
+    ${criticalBlock}
+    ${summaryTable}
+    ${patBlock}
+    ${failureBlock}
+    ${unavailableBlock}
+    ${newReposBlock}`;
+
+  // Build a compact, informative subject line.
+  const parts: string[] = [];
+  parts.push(`${summary.successCount}/${summary.totalRepos} ok`);
+  if (summary.failedCount > 0) parts.push(`${summary.failedCount} failed`);
+  if (unavailable.length > 0) parts.push(`${unavailable.length} unavailable`);
+  if (newRepos.length > 0) {
+    const newTotal = newRepos.reduce((a, e) => a + e.repos.length, 0);
+    parts.push(`${newTotal} new`);
+  }
+  if (patWarnings.length > 0) parts.push('PAT');
+  const subject = `${subjectIcon} GitEcho backup — ${parts.join(', ')}`;
+
+  await sendNotification(subject, layout('Backup cycle report', body));
 }

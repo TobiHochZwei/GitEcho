@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
-import { logger } from '../logger.js';
+import { logger, redactSecrets } from '../logger.js';
 
 import { getConfig } from '../config.js';
 import { rethrowAsUnavailableIfMatch } from './errors.js';
@@ -38,7 +38,11 @@ async function execCommand(
   } catch (error) {
     const err = error as Error & { stderr?: string };
     const detail = err.stderr?.trim() || err.message;
-    throw new Error(`Command failed: ${command} ${args.join(' ')}\n${detail}`);
+    // Never leak PATs or other credentials embedded in the command or stderr.
+    const safeArgs = args.map((a) => redactSecrets(a));
+    throw new Error(
+      `Command failed: ${command} ${safeArgs.join(' ')}\n${redactSecrets(detail)}`,
+    );
   }
 }
 
@@ -99,6 +103,11 @@ export class GitHubPlugin implements ProviderPlugin {
   }
 
   async pullRepository(repoDir: string): Promise<void> {
+    // Heal existing clones that were made before the auth-URL format fix:
+    // rewrite the remote URL to the current (correct) authenticated form so
+    // fetch/pull don't fall back to an interactive password prompt.
+    await this.healRemoteUrl(repoDir);
+
     try {
       await execCommand('git', ['-C', repoDir, 'fetch', '--all'], {
         env: nonInteractiveGitEnv(),
@@ -117,17 +126,41 @@ export class GitHubPlugin implements ProviderPlugin {
     }
   }
 
+  private async healRemoteUrl(repoDir: string): Promise<void> {
+    try {
+      const current = await execCommand(
+        'git',
+        ['-C', repoDir, 'remote', 'get-url', 'origin'],
+        { env: nonInteractiveGitEnv() },
+      );
+      // Strip any embedded credentials before rebuilding the URL.
+      const cleaned = current.replace(/https:\/\/[^/@\s]+@github\.com\//i, 'https://github.com/');
+      const fresh = this.getAuthenticatedUrl(cleaned.replace(/\.git$/, ''));
+      if (fresh !== current) {
+        await execCommand('git', ['-C', repoDir, 'remote', 'set-url', 'origin', fresh], {
+          env: nonInteractiveGitEnv(),
+        });
+      }
+    } catch {
+      // Best-effort — if remote doesn't exist yet or the repo is being cloned,
+      // fetch will surface the real error below.
+    }
+  }
+
   getAuthenticatedUrl(repoUrl: string): string {
     const pat = this.getPat();
-    const normalized = repoUrl.replace(/\.git$/, '');
+    // Strip any previously-embedded credentials so a rotated PAT always wins
+    // (old clones may have the previous token baked into their remote URL).
+    const stripped = repoUrl.replace(
+      /^(https:\/\/)[^/@\s]+(?::[^/@\s]+)?@github\.com\//i,
+      '$1github.com/',
+    );
+    const normalized = stripped.replace(/\.git$/, '');
     // Use "x-access-token:<pat>@github.com" which is the documented form for
     // both classic (ghp_) and fine-grained (github_pat_) PATs. The bare
     // "<pat>@github.com" variant is rejected by fine-grained PATs, which
     // causes git to fall back to an interactive password prompt and hang the
     // worker when running without a TTY (e.g. in Docker).
-    if (normalized.startsWith('https://x-access-token:')) {
-      return normalized + '.git';
-    }
     return (
       normalized.replace('https://github.com/', `https://x-access-token:${pat}@github.com/`) +
       '.git'

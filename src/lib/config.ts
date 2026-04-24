@@ -12,7 +12,7 @@
 
 import { loadSettings, readSecret } from './settings.js';
 import type { DiscoveryFilterSettings } from './settings.js';
-import { logger } from './logger.js';
+import { logger, registerSecret } from './logger.js';
 
 export interface ProviderConfig {
   pat: string;
@@ -175,6 +175,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const cronSchedule = isValidCron(cronCandidate) ? cronCandidate : '0 2 * * *';
 
   const smtp = loadSmtpFromLayers(env);
+
+  // Register all secrets with the logger so redaction works everywhere,
+  // including for PATs/passwords coming from settings.json (not just env).
+  if (github?.pat) registerSecret(github.pat);
+  if (azureDevOps?.pat) registerSecret(azureDevOps.pat);
+  if (smtp?.pass) registerSecret(smtp.pass);
 
   const patExpiryWarnDays = settings.patExpiryWarnDays ?? parseInteger(env.PAT_EXPIRY_WARN_DAYS, 14);
   const notifyOnSuccess =

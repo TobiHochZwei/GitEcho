@@ -109,9 +109,36 @@ function redactString(input: string): string {
       out = out.replace(s, '***');
     }
   }
+  // Also redact secrets coming from the loaded settings (UI-managed PATs etc.)
+  for (const s of runtimeSecrets) {
+    if (!s || s.length < 6) continue;
+    while (out.includes(s)) {
+      out = out.replace(s, '***');
+    }
+  }
   // Generic "classic" GitHub PAT pattern (ghp_..., github_pat_...)
   out = out.replace(/\b(ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}\b/g, '***');
+  // Strip credentials embedded in URLs: https://user:pass@host and https://token@host
+  out = out.replace(/(https?:\/\/)[^/@\s:]+:[^/@\s]+@/gi, '$1***:***@');
+  out = out.replace(/(https?:\/\/)[^/@\s:]{6,}@/gi, '$1***@');
   return out;
+}
+
+/**
+ * Remove known secrets and credentials-in-URLs from an arbitrary string.
+ * Safe to call on error messages, email bodies, and DB-bound fields.
+ */
+export function redactSecrets(input: string): string {
+  return redactString(input);
+}
+
+// Secrets registered at runtime (e.g. from settings.json by the config loader).
+const runtimeSecrets = new Set<string>();
+
+/** Register a secret value so the logger and redactSecrets() will mask it. */
+export function registerSecret(secret: string | undefined | null): void {
+  if (!secret || secret.length < 6) return;
+  runtimeSecrets.add(secret);
 }
 
 // ---------------------------------------------------------------------------

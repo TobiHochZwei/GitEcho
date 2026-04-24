@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { logger } from '../logger.js';
+import { logger, redactSecrets } from '../logger.js';
 
 import { getConfig } from '../config.js';
 import { rethrowAsUnavailableIfMatch } from './errors.js';
@@ -28,7 +28,11 @@ async function execCommand(
     return stdout.trim();
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    throw new Error(`Command failed: ${command} ${args.join(' ')}\n${msg}`);
+    // Never leak PATs or other credentials embedded in the command or stderr.
+    const safeArgs = args.map((a) => redactSecrets(a));
+    throw new Error(
+      `Command failed: ${command} ${safeArgs.join(' ')}\n${redactSecrets(msg)}`,
+    );
   }
 }
 
@@ -290,6 +294,11 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
   }
 
   async pullRepository(repoDir: string): Promise<void> {
+    // Heal existing clones that were made before the auth-URL format fix:
+    // rewrite the remote URL to the current (correct) authenticated form so
+    // fetch/pull don't fall back to an interactive password prompt.
+    await this.healRemoteUrl(repoDir);
+
     try {
       await execCommand('git', ['-C', repoDir, 'fetch', '--all'], {
         env: nonInteractiveGitEnv(),
@@ -310,12 +319,42 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
     }
   }
 
+  private async healRemoteUrl(repoDir: string): Promise<void> {
+    try {
+      const current = await execCommand(
+        'git',
+        ['-C', repoDir, 'remote', 'get-url', 'origin'],
+        { env: nonInteractiveGitEnv() },
+      );
+      // Strip any embedded credentials, then rebuild from the canonical URL.
+      const cleaned = current.replace(
+        /https:\/\/[^/@\s]+(?::[^/@\s]+)?@dev\.azure\.com\//i,
+        'https://dev.azure.com/',
+      );
+      const fresh = this.getAuthenticatedUrl(cleaned);
+      if (fresh !== current) {
+        await execCommand('git', ['-C', repoDir, 'remote', 'set-url', 'origin', fresh], {
+          env: nonInteractiveGitEnv(),
+        });
+      }
+    } catch {
+      // Best-effort — fetch will surface the real error below.
+    }
+  }
+
   getAuthenticatedUrl(repoUrl: string): string {
     const config = getConfig();
     if (!config.azureDevOps?.pat) return repoUrl;
 
+    // Strip any previously-embedded credentials so a rotated PAT always wins
+    // (old clones may have the previous token baked into their remote URL).
+    const cleaned = repoUrl.replace(
+      /^(https:\/\/)[^/@\s]+(?::[^/@\s]+)?@dev\.azure\.com\//i,
+      '$1dev.azure.com/',
+    );
+
     try {
-      const url = new URL(repoUrl);
+      const url = new URL(cleaned);
       // Azure DevOps accepts Basic auth with any (or empty) username and the
       // PAT as password. Using an explicit "pat" username is more portable
       // than username-only, which some git/credential-helper combos treat as
@@ -325,7 +364,7 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
       return url.toString();
     } catch {
       // Fallback: simple string replacement
-      return repoUrl.replace('https://', `https://pat:${config.azureDevOps.pat}@`);
+      return cleaned.replace('https://', `https://pat:${config.azureDevOps.pat}@`);
     }
   }
 }

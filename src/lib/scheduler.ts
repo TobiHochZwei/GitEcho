@@ -1,15 +1,10 @@
 import { schedule as cronSchedule, validate as cronValidate, type ScheduledTask } from 'node-cron';
 import { getConfig } from './config.js';
 import { runBackup } from './backup/engine.js';
-import {
-  notifyBackupSuccess,
-  notifyCriticalError,
-  notifyUnavailableRepos,
-  checkAndNotifyPatExpiry,
-} from './smtp.js';
-import type { BackupSummary } from './smtp.js';
+import { notifyBackupCycleReport, collectPatExpiryWarnings } from './smtp.js';
+import type { BackupCycleReport, BackupSummary } from './smtp.js';
 import { tryAcquireBackupLock } from './backup-lock.js';
-import { logger } from './logger.js';
+import { logger, redactSecrets } from './logger.js';
 
 let scheduledTask: ScheduledTask | null = null;
 let isRunning = false;
@@ -26,11 +21,10 @@ export async function executeBackupCycle(): Promise<void> {
   }
 
   isRunning = true;
-  logger.info(`[Scheduler] Starting backup cycle at ${new Date().toISOString()}`);
+  const cycleStartedAt = new Date().toISOString();
+  logger.info(`[Scheduler] Starting backup cycle at ${cycleStartedAt}`);
 
   try {
-    await checkAndNotifyPatExpiry();
-
     const result = await runBackup();
 
     logger.info(
@@ -49,32 +43,48 @@ export async function executeBackupCycle(): Promise<void> {
       failures: result.failures,
     };
 
-    // Always emit a single summary email when any upstream repos became
-    // unreachable during this run — independent of NOTIFY_ON_SUCCESS.
-    if (result.unavailable.length > 0) {
-      await notifyUnavailableRepos(result.unavailable);
-    }
+    const report: BackupCycleReport = {
+      summary,
+      unavailable: result.unavailable,
+      newRepos: result.newRepos,
+      patWarnings: result.patWarnings,
+    };
 
-    if (result.failedCount > 0 && result.successCount === 0) {
-      await notifyCriticalError(
-        `All ${result.failedCount} repositories failed to backup`,
-        JSON.stringify(result.failures, null, 2),
-      );
-    } else if (result.failedCount > 0) {
-      await notifyCriticalError(
-        `${result.failedCount} of ${result.totalRepos} repositories failed to backup`,
-        JSON.stringify(result.failures, null, 2),
-      );
-      await notifyBackupSuccess(summary);
-    } else {
-      await notifyBackupSuccess(summary);
-    }
+    // Send exactly one consolidated email for the entire cycle.
+    await notifyBackupCycleReport(report);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = redactSecrets(error instanceof Error ? error.message : String(error));
     const stack = error instanceof Error ? error.stack : undefined;
     logger.error(`[Scheduler] Backup cycle failed: ${message}`);
-    if (stack) logger.error(`[Scheduler] Stack:\n${stack}`);
-    await notifyCriticalError(message, stack ?? 'Backup cycle crashed');
+    if (stack) logger.error(`[Scheduler] Stack:\n${redactSecrets(stack)}`);
+
+    // Engine crashed before producing a BackupResult — still send a single
+    // report so the operator learns about it.
+    const completedAt = new Date().toISOString();
+    const crashReport: BackupCycleReport = {
+      summary: {
+        startedAt: cycleStartedAt,
+        completedAt,
+        totalRepos: 0,
+        successCount: 0,
+        failedCount: 0,
+        skippedCount: 0,
+        backupMode: getConfig().backupMode,
+        failures: [],
+      },
+      unavailable: [],
+      newRepos: [],
+      patWarnings: collectPatExpiryWarnings(),
+      criticalError: {
+        message,
+        context: stack ? redactSecrets(stack) : 'Backup cycle crashed',
+      },
+    };
+    try {
+      await notifyBackupCycleReport(crashReport);
+    } catch (notifyErr) {
+      logger.error('[Scheduler] Failed to send crash report email:', notifyErr);
+    }
   } finally {
     isRunning = false;
     handle.release();

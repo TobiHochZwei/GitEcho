@@ -293,6 +293,22 @@ export class GitLabPlugin implements ProviderPlugin {
   }
 
   private async fastForwardToRemoteDefault(repoDir: string): Promise<void> {
+    // Empty remote (no branches yet) → `set-head --auto` would fail with
+    // "Cannot determine remote HEAD". Detect and skip quietly.
+    const remoteBranchList = await execFileAsync(
+      'git',
+      ['-C', repoDir, 'ls-remote', '--heads', 'origin'],
+      { env: nonInteractiveGitEnv() },
+    )
+      .then(({ stdout }) => stdout.trim())
+      .catch(() => '');
+    if (remoteBranchList.length === 0) {
+      logger.info(
+        `[gitlab] Remote for "${repoDir}" appears to be empty (no branches) — skipping fast-forward.`,
+      );
+      return;
+    }
+
     let remoteDefault: string | undefined;
     try {
       await execCommand('git', gitArgs('-C', repoDir, 'remote', 'set-head', 'origin', '--auto'), {

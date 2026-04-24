@@ -483,6 +483,24 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
    *   4. On genuine divergence → warn and return (never force).
    */
   private async fastForwardToRemoteDefault(repoDir: string): Promise<void> {
+    // If the remote has no branches at all (e.g. a freshly created,
+    // still-empty Azure DevOps repo), `git remote set-head --auto` cannot
+    // resolve HEAD and fails with "Cannot determine remote HEAD". That's
+    // expected, not a malfunction — skip quietly with an info note.
+    const remoteBranchList = await execFileAsync(
+      'git',
+      ['-C', repoDir, 'ls-remote', '--heads', 'origin'],
+      { env: nonInteractiveGitEnv() },
+    )
+      .then(({ stdout }) => stdout.trim())
+      .catch(() => '');
+    if (remoteBranchList.length === 0) {
+      logger.info(
+        `[azuredevops] Remote for "${repoDir}" appears to be empty (no branches) — skipping fast-forward.`,
+      );
+      return;
+    }
+
     let remoteDefault: string | undefined;
     try {
       await execCommand('git', gitArgs('-C', repoDir, 'remote', 'set-head', 'origin', '--auto'), {

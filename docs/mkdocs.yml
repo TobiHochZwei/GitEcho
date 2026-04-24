@@ -81,10 +81,11 @@ markdown_extensions:
 
 plugins:
   - search
+  - glightbox
 
 extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/TobiHochZwei/GitEcho
 
-copyright: Copyright &copy; 2026 Tobias Allweier — MIT License
+copyright: Copyright &copy; 2026 TobiHochZwei — Tobias Allweier and Tobias Wittenburg — MIT License

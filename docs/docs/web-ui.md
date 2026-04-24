@@ -3,8 +3,10 @@
 GitEcho ships with a full-featured web interface built on **AdminLTE 4** (Bootstrap 5). It supports light and dark mode (toggle in the top bar, persisted in `localStorage`).
 
 ## Dashboard (`/`)
- 
+
 The main landing page shows an at-a-glance overview:
+
+![Dashboard](assets/screenshots/dashboard.png)
 
 - **Total repositories** being backed up
 - **Last backup time** and current backup mode
@@ -14,8 +16,10 @@ The main landing page shows an at-a-glance overview:
 - **Unavailable Upstream** count and warning banner when any repository can't be reached
 
 ## Repositories (`/repos`)
- 
-Lists all known repositories with:
+
+Lists all known repositories with provider badge, last sync, status and per-repo actions.
+
+![Repositories list](assets/screenshots/repos-list.png)
 
 - Provider icon (GitHub, Azure DevOps, GitLab)
 - Last sync time and status
@@ -23,22 +27,48 @@ Lists all known repositories with:
     - **Browse** (option1) — navigate files in the Web UI
     - **ZIP archives** (option2 and option3) — list stored snapshots
 
+### Repository detail (`/settings/repos/<id>`)
+
+Per-repo configuration, notes, danger zone (archive / delete), and the most recent backup attempts.
+
+![Repository detail](assets/screenshots/repo-detail.png)
+
 ## Backup Runs (`/runs`)
 
-Chronological history of all backup runs showing:
+Chronological history of all backup runs.
 
-- Start/end time
-- Total, success, failed, unavailable, and skipped repository counts
-- Error summaries
+![Runs list](assets/screenshots/runs-list.png)
 
 Click a run to see the **per-run detail** (`/runs/<id>`) with every repository that was processed, including status, error messages, ZIP paths, and SHA-256 checksums.
+
+=== "Successful run"
+
+    ![Successful run](assets/screenshots/run-detail-success.png)
+
+=== "Partial failure"
+
+    ![Partial failure](assets/screenshots/run-detail-partial.png)
+
+=== "Cancelled run"
+
+    ![Cancelled run](assets/screenshots/run-detail-cancelled.png)
 
 ## Browse (`/browse/...`)
 
 !!! note
     Only available for repositories using **option1** (git pull).
 
-Read-only file and folder navigation of cloned repositories. Features:
+Read-only file and folder navigation of cloned repositories.
+
+=== "Tree view"
+
+    ![Browse — tree view](assets/screenshots/browse-option1-tree.png)
+
+=== "File preview"
+
+    ![Browse — file preview](assets/screenshots/browse-option1-file.png)
+
+Features:
 
 - Directory listing with file sizes and last-modified dates
 - File content preview
@@ -49,18 +79,30 @@ Read-only file and folder navigation of cloned repositories. Features:
 !!! note
     Only available for repositories using **option2** or **option3**.
 
-Lists all stored ZIP snapshots for a repository with:
+Lists all stored ZIP snapshots for a repository with file size, creation date and direct download links.
 
-- File size
-- Creation date
-- Direct download link
+=== "option2"
+
+    ![ZIPs — option2](assets/screenshots/zips-option2.png)
+
+=== "option3"
+
+    ![ZIPs — option3](assets/screenshots/zips-option3.png)
 
 ## Logs (`/logs`)
 
-Live view of GitEcho's structured JSONL log (`/data/gitecho.log`) with:
+Live view of GitEcho's structured JSONL log (`/data/gitecho.log`).
+
+![Log viewer](assets/screenshots/logs.png)
 
 - **Filtering** by level (debug, info, warn, error), source (server, worker), and free-text search
 - **Download** button for rotated log files
+
+### Per-repo debug trace
+
+When a repository's verbose `GIT_TRACE` toggle is enabled, every backup attempt produces a downloadable trace file under the repo detail page.
+
+![Debug log viewer](assets/screenshots/debug-log-viewer.png)
 
 ## Settings
 
@@ -74,3 +116,5 @@ The Settings section (`/settings`) provides full configuration management:
 | **SMTP** (`/settings/smtp`) | Configure email notifications, send test emails |
 | **General** (`/settings/general`) | Change backup mode, edit cron schedule, trigger manual backup |
 | **Account** (`/settings/account`) | Change admin password |
+
+See [Settings UI reference](configuration/settings-ui.md) for a screenshot of every tab.

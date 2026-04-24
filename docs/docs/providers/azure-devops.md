@@ -1,5 +1,7 @@
 # Azure DevOps
 
+![Providers settings](../assets/screenshots/settings-providers.png)
+
 ## Required PAT Scopes
 
 - **Code** → *Read* (clone and list repos per project)

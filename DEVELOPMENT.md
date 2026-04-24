@@ -187,7 +187,66 @@ curl -s -u dev:dev http://localhost:3000/api/backup/trigger | jq
 curl -s -u dev:dev -X POST http://localhost:3000/api/backup/trigger
 ```
 
-## 7. Resetting state
+## 7. Documentation & screenshots
+
+The README and the MkDocs site under [`docs/`](./docs/) embed screenshots
+captured by Playwright against a fictional demo dataset (Middle-earth /
+Hogwarts / Starfleet / Wayne Enterprises / Rebel Alliance). Everything is
+reproducible with a single command:
+
+```bash
+cp .env.demo.example .env.demo
+# Replace MASTER_KEY in .env.demo with `openssl rand -hex 32`
+
+npm run docs:demo
+```
+
+`docs:demo` runs in two phases:
+
+1. **`scripts/seed-demo.ts`** — wipes `.dev/demo/` and writes a fresh
+   demo SQLite DB + on-disk backup tree + encrypted vault. Idempotent;
+   safe to re-run. Demo admin password: `demo-password-123`.
+2. **`playwright.docs.config.ts`** — boots a dev server on port `4173`
+   against `.dev/demo/` and runs every spec under `tests/docs/`. Output
+   lands in `docs/docs/assets/screenshots/*.png` at `deviceScaleFactor: 2`
+   so the images are sharp on Retina displays.
+
+The forced dark theme is enforced by seeding `localStorage['gitecho.theme'] = 'dark'`
+inside the auth-setup spec — the same key the app's [src/scripts/theme.ts](./src/scripts/theme.ts)
+reads on first paint.
+
+### Capturing the "MASTER_KEY missing" 503 page
+
+That screenshot needs a server booted *without* `MASTER_KEY`, which would
+fight the regular demo server in the same Playwright config. It has its
+own one-shot helper instead:
+
+```bash
+npx tsx scripts/capture-masterkey-missing.ts
+```
+
+It boots a throwaway dev server on port `4174` against
+`.dev/demo-nokey/`, opens `/`, captures the 503 HTML page, and tears
+down. Re-run after the layout file changes.
+
+### Adding a new screenshot
+
+1. If the shot needs new data on screen, add it to
+   [`scripts/seed-demo.ts`](./scripts/seed-demo.ts).
+2. Add a new test block in
+   [`tests/docs/capture.spec.ts`](./tests/docs/capture.spec.ts) (or
+   [`hero.spec.ts`](./tests/docs/hero.spec.ts) for a 1920×1080 marketing
+   shot). Use the `shoot(page, '<name>')` helper from
+   [`tests/docs/lib/capture.ts`](./tests/docs/lib/capture.ts) — it waits
+   for fonts + animations and writes to the screenshot folder.
+3. `npm run docs:demo`.
+4. Reference the new image with a relative link
+   `docs/docs/assets/screenshots/<name>.png`.
+
+`.dev/demo/` and `.dev/demo-nokey/` are gitignored. Only the seed script
+and the `*.png` outputs ship in the repo.
+
+## 8. Resetting state
 
 To start completely fresh:
 
@@ -199,7 +258,7 @@ rm -rf .dev/config
 
 Restart `npm run worker:dev` afterwards so the database is recreated.
 
-## 8. Project layout
+## 9. Project layout
 
 ```
 src/
@@ -272,7 +331,7 @@ custom Astro components. Key conventions:
   (`admin-lte@4.0.0-rc7`). When bumping, sanity-check the sidebar and
   small-box markup since the RC line is still evolving.
 
-## 9. Database schema migrations
+## 10. Database schema migrations
 
 GitEcho ships its schema **inside the Docker image** and reconciles it on
 every container start, so updating to a newer image is a single
@@ -374,7 +433,7 @@ docker compose up -d
   the first boot of a new image; absence of such lines means no
   migration ran.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Likely cause / fix |
 |---|---|

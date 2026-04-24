@@ -1,5 +1,7 @@
 # GitLab
 
+![Providers settings](../assets/screenshots/settings-providers.png)
+
 ## Required PAT Scopes
 
 - **`read_api`** — list projects the PAT is a member of

@@ -30,6 +30,14 @@ The simplest and most storage-efficient mode. GitEcho clones each repository on 
 
 **Best for:** Personal backups where you trust the upstream history and want fast, lightweight backups.
 
+=== "Browse the working tree"
+
+    ![Browse — option1 tree](assets/screenshots/browse-option1-tree.png)
+
+=== "Preview a file"
+
+    ![Browse — option1 file](assets/screenshots/browse-option1-file.png)
+
 ---
 
 ## Option 2 — Deduplicated ZIP Archives
@@ -60,6 +68,8 @@ Every backup cycle produces a ZIP archive of the repository. Deduplication via S
 - :x: No Browse feature in the Web UI (use ZIP archives page instead)
 
 **Best for:** When you need an audit trail of repository changes over time.
+
+![ZIP archives — option2](assets/screenshots/zips-option2.png)
 
 ---
 
@@ -93,6 +103,8 @@ The strongest revision-safety mode. Maintains a bare git mirror **and** produces
 - :x: No Browse feature in the Web UI (bare mirror has no working tree)
 
 **Best for:** Production and compliance environments where no data loss is acceptable, even after upstream force-pushes.
+
+![ZIP archives — option3](assets/screenshots/zips-option3.png)
 
 ---
 

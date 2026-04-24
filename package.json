@@ -9,7 +9,10 @@
     "preview": "astro preview",
     "start": "node dist/server/entry.mjs",
     "worker": "node dist/worker/index.mjs",
-    "worker:dev": "npx tsx worker/index.ts"
+    "worker:dev": "npx tsx worker/index.ts",
+    "seed:demo": "tsx --env-file=.env.demo scripts/seed-demo.ts",
+    "screenshots": "playwright test --config=playwright.docs.config.ts",
+    "docs:demo": "npm run seed:demo && npm run screenshots"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.8",
@@ -28,12 +31,14 @@
     "nodemailer": "^8.0.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.0",
     "@types/archiver": "^7.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/bootstrap": "^5.2.10",
     "@types/node": "^22.19.17",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^8.0.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.9.3"
   },
   "overrides": {

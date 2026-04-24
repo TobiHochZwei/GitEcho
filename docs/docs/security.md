@@ -8,6 +8,8 @@ GitEcho takes security seriously. This page covers authentication, encryption, a
 - On first start, GitEcho bootstraps the admin account and **forces a password change** — you cannot navigate away until a new password is set (minimum 8 characters, different from the username)
 - The bcrypt-hashed password is stored in the encrypted `/config/secrets.json` vault, never in plaintext and never in environment variables
 
+![Forced password change](assets/screenshots/settings-account-forced.png)
+
 ### Sessions
 
 - Cookie-based: `HttpOnly`, `SameSite=Strict`, `Secure` (when served over HTTPS)
@@ -33,6 +35,10 @@ The `MASTER_KEY` environment variable is the foundation of GitEcho's secrets man
 - Used to encrypt the admin password hash, provider PATs, and SMTP credentials at rest
 - Must be 32 bytes (64 hex characters or base64-encoded)
 - Generate with: `openssl rand -hex 32`
+
+If `MASTER_KEY` is missing on boot, GitEcho refuses to serve any page and renders a 503 explaining what to do:
+
+![MASTER_KEY missing](assets/screenshots/masterkey-missing-503.png)
 
 !!! danger "Back up your MASTER_KEY"
     Losing the `MASTER_KEY` means losing **every credential** stored via the UI (admin password included). Store it alongside your other secrets.

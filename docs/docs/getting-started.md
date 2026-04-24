@@ -69,7 +69,12 @@ openssl rand -hex 32
 
 1. Open <http://localhost:3000> in your browser
 2. Sign in with the default credentials: **`admin`** / **`admin`**
+
+    ![Login page](assets/screenshots/login.png)
+
 3. You will be **forced to change your password** before you can access anything else — choose a strong password (minimum 8 characters)
+
+    ![Forced password change](assets/screenshots/settings-account-forced.png)
 
 ## Step 4: Configure a Provider
 
@@ -77,6 +82,8 @@ openssl rand -hex 32
 2. Enter your PAT for at least one provider (GitHub, Azure DevOps, or GitLab)
 3. Set the PAT expiration date so GitEcho can warn you before it expires
 4. Click **Test connection** to verify it works
+
+![Providers settings — GitHub](assets/screenshots/settings-providers-github.png)
 
 For detailed PAT scope requirements, see the [Providers](providers/index.md) section.
 
@@ -92,6 +99,9 @@ After the backup completes, visit the **Dashboard** (`/`) to see the results, or
 ## Step 6: Verify
 
 - Check the **Dashboard** — it should show a green background indicating a successful backup within the last 24 hours
+
+    ![Dashboard after first run](assets/screenshots/dashboard.png)
+
 - Visit **Repositories** (`/repos`) to see all discovered and backed-up repos
 - If using option1 (git pull), try **Browse** on a repository to navigate its files
 - If using option2 or option3, check **ZIP archives** for the stored snapshots

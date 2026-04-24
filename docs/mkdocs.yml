@@ -89,4 +89,6 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/TobiHochZwei/GitEcho
 
-copyright: Copyright &copy; 2026 TobiHochZwei — Tobias Allweier and Tobias Wittenburg — MIT License
+copyright: >
+  Copyright &copy; 2026 TobiHochZwei — Tobias Allweier and Tobias Wittenburg — MIT License<br />
+  Supported by <a href="https://www.TobiHochZwei.de" target="_blank" rel="noopener"><img src="/GitEcho/assets/tobihochzwei-logo.png" alt="TobiHochZwei" style="height:24px;vertical-align:middle;margin-left:4px;" /></a>

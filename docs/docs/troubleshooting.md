@@ -6,7 +6,9 @@ Common issues and their solutions.
 
 ### `MASTER_KEY is required`
 
-**Cause:** The `MASTER_KEY` environment variable is not set.
+**Cause:** The `MASTER_KEY` environment variable is not set. GitEcho refuses to start and surfaces a 503 page:
+
+![MASTER_KEY missing 503](assets/screenshots/masterkey-missing-503.png)
 
 **Fix:** Generate a key and add it to your configuration:
 
@@ -59,7 +61,9 @@ If Synology ACLs are involved (a `+` in the permission bits), also grant full ri
 
 ### Worker logs `Another process is already running a backup`
 
-**Cause:** A previous backup run crashed and left `/data/.backup.lock`. The lock self-heals once the recorded PID is no longer alive.
+**Cause:** A previous backup run crashed and left `/data/.backup.lock`. The lock self-heals once the recorded PID is no longer alive. While the lock is held, the dashboard's Quick Actions card reflects this:
+
+![Backup busy state](assets/screenshots/backup-busy.png)
 
 **Fix:** If the lock persists, delete the file manually:
 
@@ -77,8 +81,14 @@ Common errors: `curl 56 Recv failure: Connection reset by peer`, `fatal: early E
 **Diagnosis:**
 
 1. Open `/settings/repos/<id>` and enable **Verbose git trace (debug)**
+
+    ![Repository detail — debug trace enabled](assets/screenshots/repo-debug-trace-enabled.png)
+
 2. Trigger a backup (scheduled or manual)
 3. Download the captured log from the **Debug traces** card
+
+    ![Debug log viewer](assets/screenshots/debug-log-viewer.png)
+
 4. The log contains full `GIT_TRACE`, `GIT_CURL_VERBOSE`, `GIT_TRACE_PACKET`, and timing information
 5. Turn the toggle off when done — traces can be tens of MiB
 
@@ -97,6 +107,47 @@ When a repo can't be reached (deleted, renamed, made private, PAT unauthorized, 
 - The affected repo is marked with `unavailable` status
 - Existing local backups are **kept untouched** — nothing is deleted
 - Once the upstream becomes reachable again, the next successful backup transitions it back to `success`
+
+The dashboard surfaces a banner whenever any repo is in this state:
+
+![Unavailable upstream banner](assets/screenshots/unavailable-banner.png)
+
+### PAT expiry warnings
+
+GitEcho records the expiration date you enter alongside each PAT and warns on the dashboard when one is within seven days of expiring.
+
+![PAT expiry warning](assets/screenshots/pat-expiry-warning.png)
+
+## Archiving vs. deleting a repository
+
+From **Settings → Repositories → \<id\>**, the Danger Zone offers two terminal actions:
+
+=== "Archive"
+
+    Moves any existing backup to `/backups/_archived/<provider>/<owner>/<repo>/<timestamp>/`
+    and stops further backup attempts. The repo is hidden from auto-discovery and the
+    main repos list, but stays available under **Settings → Repositories → Archived**
+    so you can review or unarchive it later. Confirmation requires re-typing the repo slug.
+
+    ![Archive confirmation](assets/screenshots/archive-confirm.png)
+
+    ![Archived repositories](assets/screenshots/settings-repos-archived.png)
+
+=== "Delete"
+
+    Removes the repository from the database and deletes every on-disk artifact
+    under `/backups/<provider>/<owner>/<repo>/`. **There is no undo.** Confirmation
+    also requires re-typing the repo slug.
+
+    ![Delete confirmation](assets/screenshots/delete-confirm.png)
+
+## Cleaning up `repos.txt`
+
+If an entry in `repos.txt` duplicates a repository the active PAT can already discover,
+GitEcho flags it as redundant. Open **Settings → Repositories → Cleanup** to review and
+remove redundant entries in one shot.
+
+![Repos cleanup](assets/screenshots/repos-cleanup.png)
 
 ## CLI Tools
 

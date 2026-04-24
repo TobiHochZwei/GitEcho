@@ -1,5 +1,7 @@
 # GitHub
 
+![GitHub provider settings](../assets/screenshots/settings-providers-github.png)
+
 ## Required PAT Scopes
 
 === "Classic PAT"

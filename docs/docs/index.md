@@ -11,6 +11,8 @@ hide:
 
 <p align="center"><em>Self-hosted backups for GitHub, Azure DevOps and GitLab repositories.</em></p>
 
+![GitEcho dashboard](assets/screenshots/dashboard-hero.png)
+
 ---
 
 **GitEcho** is a self-hosted, Docker-based tool that automatically backs up your Git repositories from **GitHub**, **Azure DevOps**, and **GitLab** (including self-hosted instances). It runs on a configurable cron schedule, stores everything in local mount points, and provides a web UI for monitoring and management.
@@ -43,6 +45,38 @@ Open <http://localhost:3000>, sign in with `admin` / `admin`, and you'll be prom
 
 For a full walkthrough, see the [Getting Started](getting-started.md) guide.
 
+## :camera: A tour in screenshots
+
+<div class="grid cards" markdown>
+
+-   :material-view-dashboard: **Dashboard**
+
+    Overall status, KPIs, run history chart, PAT-expiry warnings.
+
+    ![Dashboard](assets/screenshots/dashboard.png)
+
+-   :material-source-repository: **Repositories**
+
+    Every discovered repo with provider badge, last sync, status.
+
+    ![Repositories](assets/screenshots/repos-list.png)
+
+-   :material-history: **Backup runs**
+
+    Per-run breakdown — success / failed / unavailable / skipped counts.
+
+    ![Run detail](assets/screenshots/run-detail-success.png)
+
+-   :material-text-box-search: **Logs**
+
+    JSONL viewer with level/source filters, search, download.
+
+    ![Logs](assets/screenshots/logs.png)
+
+</div>
+
+> Screenshots are taken from a fictional demo dataset (Middle-earth, Hogwarts, Starfleet, Wayne Enterprises, Rebel Alliance) seeded by `npm run docs:demo`. None of the repositories are real.
+
 ## :building_construction: Architecture
 
 ![GitEcho Architecture](assets/architecture.svg)
@@ -64,3 +98,10 @@ For a full walkthrough, see the [Getting Started](getting-started.md) guide.
 ## :page_facing_up: License
 
 GitEcho is licensed under the [MIT License](https://github.com/TobiHochZwei/GitEcho/blob/main/LICENSE).
+
+---
+
+<p align="center">
+  <strong>Supported by</strong><br />
+  <a href="https://www.TobiHochZwei.de" target="_blank" rel="noopener"><img src="assets/tobihochzwei-logo.png" alt="TobiHochZwei" height="36" /></a>
+</p>

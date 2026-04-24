@@ -161,6 +161,7 @@ the environment.
 | `BACKUPS_DIR` | No | Override the backups mount path (cloned repos / ZIPs). | `/backups` |
 | `LOG_LEVEL` | No | Default log level (`debug`, `info`, `warn`, `error`). Overridden by the value set in the Settings UI if present. | `info` |
 | `LOG_MAX_BYTES` | No | Size threshold in bytes at which `/data/gitecho.log` is rotated. Up to 5 archives (`gitecho.log.1` … `gitecho.log.5`) are kept. | `10485760` (10 MB) |
+| `TZ` | No | Container timezone as an IANA zone name. Controls timestamps in logs, emails, the UI, and cron scheduling. Defaults to `UTC`. The entrypoint also writes `/etc/localtime` and `/etc/timezone` so system tools (`git`, `ls -l`, …) stay consistent. | `Europe/Berlin` |
 
 ### Configure in the Settings UI
 

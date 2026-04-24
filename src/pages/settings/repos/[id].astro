@@ -63,6 +63,7 @@ function statusBadge(status: string | null): { cls: string; label: string } {
 
 const pageTitle = repo ? `${repo.owner} / ${repo.name}` : 'Repository';
 const isSkipped = repo?.skip_backup === 1;
+const isTracing = repo?.debug_trace === 1;
 ---
 <Layout
   title={`GitEcho — ${pageTitle}`}
@@ -154,6 +155,26 @@ const isSkipped = repo?.skip_backup === 1;
           </label>
         </div>
 
+        <div class="form-check form-switch mb-3">
+          <input
+            class="form-check-input"
+            type="checkbox"
+            id="debug-trace-toggle"
+            data-repo-id={repo.id}
+            checked={isTracing}
+          />
+          <label class="form-check-label" for="debug-trace-toggle">
+            <strong>Verbose git trace (debug)</strong>
+            <div class="text-secondary small">
+              Captures <code>GIT_TRACE</code>, <code>GIT_CURL_VERBOSE</code>,
+              <code>GIT_TRACE_PACKET</code> and <code>GIT_TRACE_PERFORMANCE</code> on the next
+              clone or fetch and writes the full output to a log file below.
+              Only enable while diagnosing a specific transport problem &mdash; the
+              logs are large and may contain protocol-level detail.
+            </div>
+          </label>
+        </div>
+
         <div class="mb-2">
           <label for="notes-input" class="form-label mb-1">
             <strong>Notes</strong>
@@ -177,6 +198,16 @@ const isSkipped = repo?.skip_backup === 1;
               <i class="bi bi-save me-1"></i>Save notes
             </button>
           </div>
+        </div>
+      </Card>
+
+      <Card title="Debug traces" icon="bi-bug">
+        <p class="text-secondary small mb-2">
+          Log files written while <em>Verbose git trace</em> was on. Newest first.
+          Enable the toggle above, trigger a backup, then refresh this page.
+        </p>
+        <div id="debug-logs-list" data-repo-id={repo.id}>
+          <p class="text-secondary small mb-0">Loading…</p>
         </div>
       </Card>
 
@@ -289,5 +320,75 @@ const isSkipped = repo?.skip_backup === 1;
 
     notesInput.addEventListener('blur', saveNotes);
     notesSaveBtn?.addEventListener('click', saveNotes);
+  }
+
+  const debugToggle = document.getElementById('debug-trace-toggle') as HTMLInputElement | null;
+  if (debugToggle) {
+    debugToggle.addEventListener('change', async () => {
+      const id = debugToggle.dataset.repoId!;
+      debugToggle.disabled = true;
+      const ok = await patchRepo(id, { debugTrace: debugToggle.checked });
+      debugToggle.disabled = false;
+      if (ok) {
+        toastFn(
+          debugToggle.checked
+            ? 'Verbose trace enabled — run a backup to capture a log.'
+            : 'Verbose trace disabled.',
+          'success',
+        );
+      } else {
+        debugToggle.checked = !debugToggle.checked;
+      }
+    });
+  }
+
+  // Populate the debug-logs list for the repo.
+  const debugLogsList = document.getElementById('debug-logs-list');
+  if (debugLogsList) {
+    const repoId = debugLogsList.dataset.repoId!;
+    const formatSize = (bytes: number): string => {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+    };
+    const escapeHtml = (s: string): string =>
+      s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
+    void fetch(`/api/repos/${repoId}/debug-logs`)
+      .then((r) => r.json())
+      .then((data: { files?: Array<{ name: string; size: number; mtime: string }> }) => {
+        const files = data.files ?? [];
+        if (files.length === 0) {
+          debugLogsList.innerHTML =
+            '<p class="text-secondary small mb-0">No trace logs captured yet.</p>';
+          return;
+        }
+        const rows = files
+          .map(
+            (f) =>
+              `<tr>
+                <td class="small"><code>${escapeHtml(f.name)}</code></td>
+                <td class="small text-secondary">${escapeHtml(f.mtime)}</td>
+                <td class="small text-secondary">${formatSize(f.size)}</td>
+                <td class="text-end">
+                  <a class="btn btn-sm btn-outline-primary"
+                     href="/api/repos/${repoId}/debug-logs?file=${encodeURIComponent(f.name)}"
+                     download>
+                    <i class="bi bi-download me-1"></i>Download
+                  </a>
+                </td>
+              </tr>`,
+          )
+          .join('');
+        debugLogsList.innerHTML =
+          `<div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">
+            <thead><tr><th>File</th><th>Captured</th><th>Size</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table></div>`;
+      })
+      .catch((e: Error) => {
+        debugLogsList.innerHTML =
+          `<p class="text-danger small mb-0">Failed to load: ${escapeHtml(e.message)}</p>`;
+      });
   }
 </script>

@@ -48,7 +48,7 @@ WebApp features
 - Dashboard (`/`) — overall status, total repos, last backup time, current mode, cached storage usage, and the most recent backup runs. Background turns green/red based on whether a successful backup occurred in the last 24h. The storage figure is served from a persistent cache refreshed by the worker after every run, so the dashboard never blocks on a filesystem walk.
 - Repositories (`/repos`) — list of all known repos with provider, last sync time, last status, and a per-repo action (Browse for option1, ZIP archives for option2 and option3).
 - Repository settings (`/settings/repos`) — DB-first view of every repository GitEcho backs up, with a filter, source badge (`discovered` vs. `extra`), and a separate section for extras pinned in `repos.txt`. Redundant `repos.txt` entries that are already in the DB are cleaned up automatically each cycle (toggle under `/settings/providers`).
-- Repository detail (`/settings/repos/<id>`) — per-repo overview with status, last error, free-text **notes** (up to 4000 chars), a **“Exclude from future backups”** toggle that skips the repo without touching its last known status or history, and the last 20 backup attempts joined with their run.
+- Repository detail (`/settings/repos/<id>`) — per-repo overview with status, last error, free-text **notes** (up to 4000 chars), a **“Exclude from future backups”** toggle that skips the repo without touching its last known status or history, a **“Verbose git trace (debug)”** toggle that captures full `GIT_TRACE` / `GIT_CURL_VERBOSE` / `GIT_TRACE_PACKET` / `GIT_TRACE_PERFORMANCE` output on the next clone or fetch, a list of captured trace logs with per-file downloads, and the last 20 backup attempts joined with their run.
 - Backup runs (`/runs`) — chronological history of backup runs with totals, success / failed / unavailable / **skipped** counts, and error summaries.
 - Browse (`/browse/<provider>/<owner>/<repo>/...`, option1 only) — read-only file/folder navigation of the cloned repo, with download as ZIP for files, folders, or the whole repo.
 - ZIP archives (`/zips/<provider>/<owner>/<repo>`, option2 and option3) — list of stored ZIP snapshots for a repo with size, date, and download link.
@@ -383,6 +383,32 @@ https://dev.azure.com/myorg/MyProject/_git/my-repo
 > `/settings/repos/<id>` and toggle **Exclude from future backups** — the
 > repo stays in the DB (with its history, notes, and last known status)
 > but the engine skips it on every cycle until you turn it back on.
+>
+> ### Diagnosing a single failing repository
+>
+> When a specific repo keeps failing to clone or fetch (`curl 56 Recv
+> failure: Connection reset by peer`, `fatal: early EOF`, `HTTP/2 stream
+> CANCEL`, `fetch-pack: unexpected disconnect`, …) — especially for large
+> repos or behind a NAS / corporate proxy / firewall — you can turn on
+> **verbose git tracing** for just that repository:
+>
+> 1. Open `/settings/repos/<id>` and enable **Verbose git trace (debug)**.
+>    Applies to both GitHub and Azure DevOps repos.
+> 2. Trigger a backup (scheduled or manual). The next clone / fetch for
+>    the repo runs with `GIT_TRACE`, `GIT_CURL_VERBOSE`,
+>    `GIT_TRACE_PACKET`, `GIT_TRACE_PACK_ACCESS`,
+>    `GIT_TRACE_PERFORMANCE` and `GIT_TRACE_SETUP` all on.
+> 3. Refresh `/settings/repos/<id>` and download the captured log from
+>    the **Debug traces** card. The log contains full curl verbose,
+>    packet-level git protocol trace, timing information and the exact
+>    exit code / signal. Credentials are redacted in both stderr and the
+>    stored log.
+> 4. Turn the toggle off when done — traces are verbose (tens of MiB on
+>    a large clone) and only useful while actively troubleshooting.
+>
+> Logs are written to `/data/debug-logs/repo-<id>/<clone|pull>-<ts>.log`,
+> capped at 250 MiB each, with the last 10 files per repo retained
+> automatically.
 >
 > Newly-discovered repos are always persisted in the local SQLite database
 > and appear on `/settings/repos`.

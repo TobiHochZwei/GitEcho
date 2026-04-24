@@ -27,6 +27,7 @@ export interface Repository {
   checksum: string | null;
   notes: string | null;
   skip_backup: number;
+  debug_trace: number;
   created_at: string;
   updated_at: string;
 }
@@ -84,6 +85,7 @@ const SCHEMA = `
     checksum TEXT,
     notes TEXT,
     skip_backup INTEGER NOT NULL DEFAULT 0,
+    debug_trace INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -156,6 +158,12 @@ export function initDatabase(dataDir: string): DatabaseInstance {
     instance,
     'repositories',
     'skip_backup',
+    'INTEGER NOT NULL DEFAULT 0',
+  );
+  migrateAddColumnIfMissing(
+    instance,
+    'repositories',
+    'debug_trace',
     'INTEGER NOT NULL DEFAULT 0',
   );
 
@@ -359,6 +367,45 @@ export function setRepositorySkipBackup(id: number, skip: boolean): boolean {
     )
     .run({ id, skip: skip ? 1 : 0 });
   return result.changes > 0;
+}
+
+/**
+ * Toggle per-repository verbose git tracing. When enabled, the next
+ * clone/fetch for this repo runs with GIT_TRACE / GIT_CURL_VERBOSE /
+ * GIT_TRACE_PACKET / GIT_TRACE_PERFORMANCE set and the child's stderr
+ * is streamed to a timestamped log file under `{dataDir}/debug-logs/`.
+ * Intended only for diagnosing transport failures on a specific repo;
+ * the logs are verbose and may contain redacted-but-still-sensitive
+ * protocol details.
+ */
+export function setRepositoryDebugTrace(id: number, enabled: boolean): boolean {
+  const database = getDatabase();
+  const result = database
+    .prepare(
+      `UPDATE repositories
+          SET debug_trace = @enabled,
+              updated_at = datetime('now')
+        WHERE id = @id`,
+    )
+    .run({ id, enabled: enabled ? 1 : 0 });
+  return result.changes > 0;
+}
+
+/**
+ * Look up the debug-trace flag by repo URL. Used by provider plugins that
+ * only receive the URL (not the row id) when cloning or pulling.
+ * Returns false when the repository is unknown or the flag is off.
+ */
+export function getRepositoryDebugTraceByUrl(url: string): {
+  enabled: boolean;
+  id: number | null;
+} {
+  const database = getDatabase();
+  const row = database
+    .prepare('SELECT id, debug_trace FROM repositories WHERE url = ?')
+    .get(url) as { id: number; debug_trace: number } | undefined;
+  if (!row) return { enabled: false, id: null };
+  return { enabled: row.debug_trace === 1, id: row.id };
 }
 
 export interface RepositoryBackupHistoryEntry {

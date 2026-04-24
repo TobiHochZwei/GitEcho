@@ -8,6 +8,7 @@ import type { APIRoute } from 'astro';
 import {
   getRepositoryWithHistory,
   REPOSITORY_NOTES_MAX_LENGTH,
+  setRepositoryDebugTrace,
   setRepositorySkipBackup,
   updateRepositoryNotes,
 } from '../../../lib/database.js';
@@ -15,6 +16,7 @@ import {
 interface PatchBody {
   notes?: string | null;
   skipBackup?: boolean;
+  debugTrace?: boolean;
 }
 
 function parseId(raw: string | undefined): number | undefined {
@@ -88,6 +90,16 @@ export const PATCH: APIRoute = async ({ params, request }) => {
       });
     }
     setRepositorySkipBackup(id, body.skipBackup);
+  }
+
+  if (body.debugTrace !== undefined) {
+    if (typeof body.debugTrace !== 'boolean') {
+      return new Response(JSON.stringify({ error: 'debugTrace must be a boolean' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    setRepositoryDebugTrace(id, body.debugTrace);
   }
 
   const result = getRepositoryWithHistory(id);

@@ -141,6 +141,51 @@ const backupRunning = activeLock !== undefined;
         </dl>
       </Card>
 
+      {!repo.archived && (
+        <Card title="Manual run" icon="bi-play-circle">
+          <p class="text-secondary small mb-2">
+            Trigger a backup for <strong>this repository only</strong>. Uses the
+            global backup lock, so it cannot run while a full cycle is in
+            progress. The run appears in <a href="/runs">/runs</a> like any other.
+          </p>
+          {backupRunning && (
+            <div class="alert alert-info small d-flex gap-2 py-2 mb-2" role="alert">
+              <i class="bi bi-hourglass-split"></i>
+              <div>
+                A backup cycle is currently running{activeLock?.startedAt ? ` (started ${activeLock.startedAt})` : ''}.
+                The button is disabled until it finishes.
+              </div>
+            </div>
+          )}
+          {isSkipped && !backupRunning && (
+            <div class="alert alert-warning small d-flex gap-2 py-2 mb-2" role="alert">
+              <i class="bi bi-pause-circle"></i>
+              <div>
+                This repository is excluded from backups. Disable the skip
+                toggle below to enable manual runs.
+              </div>
+            </div>
+          )}
+          <button
+            type="button"
+            class="btn btn-primary"
+            id="run-repo-backup-btn"
+            data-repo-id={repo.id}
+            disabled={backupRunning || isSkipped}
+            title={
+              backupRunning
+                ? 'Wait for the running backup to finish'
+                : isSkipped
+                  ? 'Repository is excluded — disable the skip toggle first'
+                  : undefined
+            }
+          >
+            <i class="bi bi-play-fill me-1"></i>Run backup for this repository
+          </button>
+          <span id="run-repo-backup-status" class="text-secondary small ms-2"></span>
+        </Card>
+      )}
+
       <Card title="Settings" icon="bi-gear">
         <div class="form-check form-switch mb-3">
           <input
@@ -383,6 +428,8 @@ const backupRunning = activeLock !== undefined;
   const notesInput = document.getElementById('notes-input') as HTMLTextAreaElement | null;
   const notesCount = document.getElementById('notes-count');
   const notesSaveBtn = document.getElementById('notes-save-btn') as HTMLButtonElement | null;
+  const runRepoBackupBtn = document.getElementById('run-repo-backup-btn') as HTMLButtonElement | null;
+  const runRepoBackupStatus = document.getElementById('run-repo-backup-status');
 
   async function patchRepo(id: string, body: Record<string, unknown>): Promise<boolean> {
     try {
@@ -417,6 +464,54 @@ const backupRunning = activeLock !== undefined;
       } else {
         // Revert UI on failure.
         skipToggle.checked = !skipToggle.checked;
+      }
+    });
+  }
+
+  if (runRepoBackupBtn) {
+    const id = runRepoBackupBtn.dataset.repoId!;
+    const originalHtml = runRepoBackupBtn.innerHTML;
+
+    const pollUntilDone = async (): Promise<void> => {
+      // Poll the shared trigger GET endpoint every 2s. Resolves when
+      // `running` flips back to false.
+      while (true) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const res = await fetch('/api/backup/trigger');
+          const j = await res.json();
+          if (!j.running) return;
+        } catch {
+          // Transient failures during polling are non-fatal; keep trying.
+        }
+      }
+    };
+
+    runRepoBackupBtn.addEventListener('click', async () => {
+      runRepoBackupBtn.disabled = true;
+      runRepoBackupBtn.innerHTML =
+        '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Starting…';
+      if (runRepoBackupStatus) runRepoBackupStatus.textContent = '';
+      try {
+        const res = await fetch(`/api/repos/${id}/backup`, { method: 'POST' });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toastFn(j.error || `Failed to start: ${res.statusText}`, 'danger');
+          runRepoBackupBtn.innerHTML = originalHtml;
+          runRepoBackupBtn.disabled = false;
+          return;
+        }
+        toastFn('Backup started for this repository.', 'success');
+        runRepoBackupBtn.innerHTML =
+          '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Running…';
+        if (runRepoBackupStatus) runRepoBackupStatus.textContent = 'Waiting for completion…';
+        await pollUntilDone();
+        toastFn('Backup finished — reloading…', 'success');
+        setTimeout(() => window.location.reload(), 600);
+      } catch (e) {
+        toastFn(`Network error: ${(e as Error).message}`, 'danger');
+        runRepoBackupBtn.innerHTML = originalHtml;
+        runRepoBackupBtn.disabled = false;
       }
     });
   }

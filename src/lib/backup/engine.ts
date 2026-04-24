@@ -5,6 +5,7 @@ import { getConfig } from '../config';
 import {
   createBackupItem,
   createBackupRun,
+  getRepository,
   isRunCancellationRequested,
   updateBackupItem,
   updateBackupRun,
@@ -48,11 +49,13 @@ export interface BackupResult {
   patWarnings: PatWarning[];
 }
 
-export async function runBackup(): Promise<BackupResult> {
+export async function runBackup(options?: { repositoryId?: number }): Promise<BackupResult> {
   const config = getConfig();
   const { backupMode, backupsDir } = config;
 
-  logger.info(`[backup] Starting backup run (mode: ${backupMode})`);
+  const singleRepoId = options?.repositoryId;
+  const singleRepoLabel = singleRepoId !== undefined ? ` (single repo #${singleRepoId})` : '';
+  logger.info(`[backup] Starting backup run (mode: ${backupMode})${singleRepoLabel}`);
 
   // Create backup run in DB
   const run = createBackupRun(backupMode);
@@ -79,7 +82,25 @@ export async function runBackup(): Promise<BackupResult> {
   // Pass notify=false so the "new repos discovered" email is NOT sent from
   // here — the scheduler folds this information into a single cycle report.
   const discovery = await runDiscovery({ notify: false });
-  const allRepos: Array<{ plugin: ProviderPlugin; repo: RepositoryInfo }> = discovery.repos;
+  let allRepos: Array<{ plugin: ProviderPlugin; repo: RepositoryInfo }> = discovery.repos;
+
+  // Single-repo mode: filter discovery results down to just the requested
+  // repository. We match on URL (case-insensitive) since that's the unique
+  // identifier both discovery and the DB agree on.
+  let singleRepoFilterError: string | null = null;
+  if (singleRepoId !== undefined) {
+    const dbRow = getRepository(singleRepoId);
+    if (!dbRow) {
+      singleRepoFilterError = `Repository #${singleRepoId} not found`;
+      allRepos = [];
+    } else {
+      const targetUrl = dbRow.url.toLowerCase();
+      allRepos = allRepos.filter((r) => r.repo.url.toLowerCase() === targetUrl);
+      if (allRepos.length === 0) {
+        singleRepoFilterError = `Repository #${singleRepoId} (${dbRow.url}) was not returned by discovery — check provider configuration and that the repo still exists upstream`;
+      }
+    }
+  }
 
   const newRepos: NewRepoEntry[] = discovery.providers
     .filter((p) => p.newlyDiscovered.length > 0)
@@ -309,13 +330,18 @@ export async function runBackup(): Promise<BackupResult> {
   if (cancelled) {
     errorParts.unshift('Cancelled by user');
   }
+  if (singleRepoFilterError) {
+    errorParts.unshift(singleRepoFilterError);
+  }
   const errorSummary = errorParts.length > 0 ? errorParts.join('\n\n') : null;
 
   const finalStatus = cancelled
     ? 'cancelled'
-    : failedCount === 0 && unavailableCount === 0
-      ? 'success'
-      : 'partial_failure';
+    : singleRepoFilterError
+      ? 'partial_failure'
+      : failedCount === 0 && unavailableCount === 0
+        ? 'success'
+        : 'partial_failure';
 
   updateBackupRun(run.id, {
     completed_at: completedAt,

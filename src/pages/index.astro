@@ -50,7 +50,7 @@ try {
     failedRuns7d: 0,
     unavailableCount: 0,
   };
-  config = { backupMode: 'option1', cronSchedule: '0 2 * * *', github: null, azureDevOps: null, gitlab: null };
+  config = { backupMode: 'option1', cronSchedule: '0 2 * * *', cronEnabled: true, github: null, azureDevOps: null, gitlab: null };
 }
 
 const health = stats.hadRecentBackup ? 'success' : 'danger';
@@ -128,14 +128,26 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
   <!-- Schedule info -->
   <div class="row">
     <div class="col-12">
-      <div class="alert alert-info d-flex align-items-center mb-3" role="alert">
-        <i class="bi bi-clock-history me-2 fs-4"></i>
-        <div class="flex-grow-1">
-          <strong>Backup schedule:</strong> {cronHuman}
-          <span class="ms-2 text-secondary small">(<code>{config.cronSchedule}</code>)</span>
+      {config.cronEnabled === false ? (
+        <div class="alert alert-warning d-flex align-items-center mb-3" role="alert">
+          <i class="bi bi-pause-circle-fill me-2 fs-4"></i>
+          <div class="flex-grow-1">
+            <strong>Automatic backups are disabled.</strong>
+            Only manual runs via <em>Trigger Backup</em> will execute
+            <span class="ms-1 text-secondary small">(schedule: <code>{config.cronSchedule}</code>)</span>.
+          </div>
+          <a href="/settings/general" class="btn btn-sm btn-outline-warning ms-2">Change</a>
         </div>
-        <a href="/settings/general" class="btn btn-sm btn-outline-info ms-2">Change</a>
-      </div>
+      ) : (
+        <div class="alert alert-info d-flex align-items-center mb-3" role="alert">
+          <i class="bi bi-clock-history me-2 fs-4"></i>
+          <div class="flex-grow-1">
+            <strong>Backup schedule:</strong> {cronHuman}
+            <span class="ms-2 text-secondary small">(<code>{config.cronSchedule}</code>)</span>
+          </div>
+          <a href="/settings/general" class="btn btn-sm btn-outline-info ms-2">Change</a>
+        </div>
+      )}
     </div>
   </div>
 

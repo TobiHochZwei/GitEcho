@@ -102,8 +102,16 @@ export function startScheduler(): void {
   }
 
   logger.info(`[Scheduler] Starting with schedule: ${schedule}`);
+  if (config.cronEnabled === false) {
+    logger.warn('[Scheduler] Cron is currently disabled in settings — only manual triggers will run backups');
+  }
 
   scheduledTask = cronSchedule(schedule, () => {
+    // Re-read the flag on every tick so UI toggles take effect without a restart.
+    if (getConfig().cronEnabled === false) {
+      logger.info('[Scheduler] Cron disabled via settings, skipping tick');
+      return;
+    }
     executeBackupCycle().catch((err) => {
       logger.error('[Scheduler] Unhandled error in backup cycle:', err);
     });

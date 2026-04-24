@@ -60,6 +60,17 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
             <div class="form-text">Affects how repositories are cloned and stored.</div>
           </div>
           <div class="mb-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" id="cronEnabled" name="cronEnabled" checked={cfg.cronEnabled !== false} />
+              <label class="form-check-label fw-semibold" for="cronEnabled">Enable cron schedule</label>
+            </div>
+            <div class="form-text">
+              When disabled, scheduled backups are paused and only manual
+              triggers (Trigger Backup button) run. Takes effect on the next
+              tick — no worker restart required.
+            </div>
+          </div>
+          <div class="mb-3">
             <label class="form-label fw-semibold" for="cronSchedule">Cron schedule</label>
             <input id="cronSchedule" name="cronSchedule" class="form-control font-monospace" value={cfg.cronSchedule} />
             <div class="form-text">
@@ -177,12 +188,14 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
     e.preventDefault();
     const fd = new FormData(form);
     const runBackupOnStart = (document.getElementById('runBackupOnStart') as HTMLInputElement | null)?.checked ?? false;
+    const cronEnabled = (document.getElementById('cronEnabled') as HTMLInputElement | null)?.checked ?? true;
     const res = await fetch('/api/settings/general', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         backupMode: fd.get('backupMode'),
         cronSchedule: fd.get('cronSchedule'),
+        cronEnabled,
         runBackupOnStart,
       }),
     });

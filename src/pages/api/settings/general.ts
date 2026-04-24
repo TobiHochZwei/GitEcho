@@ -4,6 +4,7 @@ import { patchSettings } from '../../../lib/settings.js';
 interface GeneralInput {
   backupMode?: 'option1' | 'option2' | 'option3';
   cronSchedule?: string;
+  cronEnabled?: boolean;
   runBackupOnStart?: boolean;
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
 }
@@ -51,11 +52,20 @@ export const PUT: APIRoute = async ({ request }) => {
   patchSettings({
     backupMode: body.backupMode,
     cronSchedule: body.cronSchedule,
+    cronEnabled: typeof body.cronEnabled === 'boolean' ? body.cronEnabled : undefined,
     runBackupOnStart: typeof body.runBackupOnStart === 'boolean' ? body.runBackupOnStart : undefined,
     logLevel: body.logLevel,
   });
 
-  return new Response(JSON.stringify({ ok: true, note: 'Cron schedule changes require a worker restart to take effect.' }), {
+  // Cron-schedule string changes still need a worker restart to pick up the
+  // new cron expression. Toggling cronEnabled / runBackupOnStart takes effect
+  // on the next tick (or next boot) without a restart.
+  const note =
+    body.cronSchedule !== undefined
+      ? 'Cron schedule changes require a worker restart to take effect.'
+      : undefined;
+
+  return new Response(JSON.stringify({ ok: true, ...(note ? { note } : {}) }), {
     headers: { 'Content-Type': 'application/json' },
   });
 };

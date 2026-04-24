@@ -48,6 +48,12 @@ export interface AppConfig {
   gitlab?: ProviderConfig;
   backupMode: 'option1' | 'option2' | 'option3';
   cronSchedule: string;
+  /**
+   * When false, scheduled cron ticks are skipped and only manual triggers
+   * run backups. Defaults to true. Evaluated live on every cron tick, so
+   * toggling in the UI takes effect without a worker restart.
+   */
+  cronEnabled: boolean;
   /** Run a backup cycle immediately on worker startup. Defaults to false. */
   runBackupOnStart: boolean;
   smtp?: SmtpConfig;
@@ -207,6 +213,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   }
 
   const rawBackupMode = settings.backupMode ?? env.BACKUP_MODE ?? 'option1';
+  const cronEnabled = settings.cronEnabled !== undefined ? Boolean(settings.cronEnabled) : true;
+
   const backupMode: AppConfig['backupMode'] =
     rawBackupMode === 'option2' || rawBackupMode === 'option3' ? rawBackupMode : 'option1';
 
@@ -246,6 +254,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     gitlab,
     backupMode,
     cronSchedule,
+    cronEnabled,
     smtp,
     notifyOnSuccess,
     patExpiryWarnDays,

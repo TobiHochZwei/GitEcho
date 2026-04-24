@@ -74,14 +74,21 @@ export const POST: APIRoute = async ({ params, request }) => {
     relativeArchivePath = await archiveRepositoryFiles(repo, cfg.backupsDir);
   } catch (err) {
     if (err instanceof BackupBusyError) {
+      // BackupBusyError carries a fixed, user-facing sentinel — safe to expose.
       return new Response(JSON.stringify({ error: err.message }), {
         status: 409,
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    logger.error(`[repo-archive] Failed to archive #${id}: ${(err as Error).message}`);
+    // Log full details server-side (logger redacts registered secrets) but
+    // return a generic message to the client so we don't leak stack traces
+    // or internal paths. CodeQL: js/stack-trace-exposure.
+    logger.error(`[repo-archive] Failed to archive #${id}`, {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
     return new Response(
-      JSON.stringify({ error: `Archive failed: ${(err as Error).message}` }),
+      JSON.stringify({ error: 'Archive failed. See server logs for details.' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     );
   }

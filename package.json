@@ -15,7 +15,7 @@
     "docs:demo": "npm run seed:demo && npm run screenshots"
   },
   "dependencies": {
-    "@astrojs/check": "^0.9.8",
+    "@astrojs/check": "^0.9.9",
     "@astrojs/node": "^10.0.6",
     "@popperjs/core": "^2.11.8",
     "admin-lte": "^4.0.0-rc7",

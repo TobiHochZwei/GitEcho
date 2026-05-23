@@ -15,7 +15,7 @@ if (Number.isFinite(id) && id > 0) {
   if (run) {
     items = getBackupItems(id).map((it) => ({
       ...it,
-      repo: getRepository(it.repository_id) ?? null,
+      repo: it.repository_id != null ? (getRepository(it.repository_id) ?? null) : null,
     }));
   }
 }

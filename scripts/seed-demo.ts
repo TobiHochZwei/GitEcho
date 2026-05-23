@@ -14,12 +14,12 @@
 // Hogwarts / Starfleet / Wayne Enterprises / Rebel Alliance) so a
 // reader of the docs immediately sees these are demo screenshots.
 
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import bcrypt from 'bcryptjs';
 import { createWriteStream, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-import { initDatabase, getDatabase } from '../src/lib/database.js';
+import { initDatabase } from '../src/lib/database.js';
 import { encryptSecret } from '../src/lib/secrets.js';
 import type { PersistedSecrets, PersistedSettings } from '../src/lib/settings.js';
 
@@ -98,7 +98,7 @@ async function zipFromEntries(
   mkdirSync(dirname(outputPath), { recursive: true });
   await new Promise<void>((resolveFn, rejectFn) => {
     const output = createWriteStream(outputPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
     output.on('close', () => resolveFn());
     output.on('error', rejectFn);
     archive.on('error', rejectFn);
@@ -314,7 +314,6 @@ const insertRepo = db.prepare(`
 
 const repoIdByUrl = new Map<string, number>();
 const baselineCreated = isoMinusDays(45, 9, 13);
-const today = new Date();
 
 for (const r of REPOS) {
   const lastSyncAt = r.lastSyncDaysAgo !== undefined

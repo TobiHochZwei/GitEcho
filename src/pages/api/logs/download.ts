@@ -20,7 +20,7 @@ interface DownloadFilter {
 }
 
 function hasFilters(f: DownloadFilter): boolean {
-  return Boolean(f.search) || (f.levels && f.levels.length > 0) || (f.sources && f.sources.length > 0);
+  return Boolean(f.search) || Boolean(f.levels && f.levels.length > 0) || Boolean(f.sources && f.sources.length > 0);
 }
 
 function parseLine(raw: string): LogEntry | undefined {

@@ -137,13 +137,6 @@ function nonInteractiveGitEnv(): NodeJS.ProcessEnv {
   };
 }
 
-/** Extract the organization URL from a dev.azure.com repo URL. */
-function orgUrlFromRepoUrl(repoUrl: string): string | undefined {
-  const match = repoUrl.match(AZURE_DEVOPS_URL_RE);
-  if (!match?.groups) return undefined;
-  return `https://dev.azure.com/${match.groups.org}`;
-}
-
 /**
  * Read repos.txt and return only Azure DevOps URLs together with their parsed
  * components (org, project, repo).

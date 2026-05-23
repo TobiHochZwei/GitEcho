@@ -14,7 +14,7 @@
 // lock, because option1/option3 mutate the repo directory in place and
 // we'd race with them otherwise.
 
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { createWriteStream, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import type { Repository } from './database.js';
@@ -61,7 +61,7 @@ function zipDirectory(sourceDir: string, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     mkdirSync(dirname(outputPath), { recursive: true });
     const output = createWriteStream(outputPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
 
     output.on('close', () => resolve());
     output.on('error', reject);
@@ -105,7 +105,7 @@ export async function archiveRepositoryFiles(
     await new Promise<void>((resolve, reject) => {
       mkdirSync(dirname(archivePath), { recursive: true });
       const output = createWriteStream(archivePath);
-      const archive = archiver('zip', { zlib: { level: 9 } });
+      const archive = new ZipArchive({ zlib: { level: 9 } });
       output.on('close', () => resolve());
       output.on('error', reject);
       archive.on('error', reject);

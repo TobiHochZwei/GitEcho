@@ -9,7 +9,7 @@ import { createWriteStream, existsSync, mkdirSync, mkdtempSync, rmSync, readFile
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import type {
   PluginCallOptions,
   ProviderPlugin,
@@ -27,7 +27,7 @@ function computeChecksum(filePath: string): string {
 function createZip(sourceDir: string, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const output = createWriteStream(outputPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
 
     output.on('close', resolve);
     archive.on('error', reject);

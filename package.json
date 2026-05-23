@@ -1,15 +1,15 @@
 {
   "name": "gitecho",
   "type": "module",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "description": "GitHub/Azure DevOps repository backup tool",
   "scripts": {
-    "dev": "astro dev",
+    "dev": "node --env-file-if-exists=.env.local ./node_modules/astro/bin/astro.mjs dev",
     "build": "astro build && node build-worker.mjs",
     "preview": "astro preview",
     "start": "node dist/server/entry.mjs",
     "worker": "node dist/worker/index.mjs",
-    "worker:dev": "npx tsx worker/index.ts",
+    "worker:dev": "tsx --env-file-if-exists=.env.local worker/index.ts",
     "seed:demo": "tsx --env-file=.env.demo scripts/seed-demo.ts",
     "screenshots": "playwright test --config=playwright.docs.config.ts",
     "docs:demo": "npm run seed:demo && npm run screenshots"
@@ -19,7 +19,7 @@
     "@astrojs/node": "^10.1.1",
     "@popperjs/core": "^2.11.8",
     "admin-lte": "^4.0.0",
-    "archiver": "^7.0.1",
+    "archiver": "^8.0.0",
     "astro": "^6.3.7",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.10.0",
@@ -32,14 +32,13 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
-    "@types/archiver": "^7.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/bootstrap": "^5.2.10",
     "@types/node": "^22.19.19",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^8.0.0",
     "tsx": "^4.22.3",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   },
   "overrides": {
     "yaml": "^2.8.3"

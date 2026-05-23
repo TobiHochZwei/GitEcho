@@ -30,7 +30,7 @@ npm install
 mkdir -p .dev/{config,data,backups}
 ```
 
-Create `.env.local` (loaded automatically by Astro, ignored by git):
+Create `.env.local` (loaded by `npm run dev` / `npm run worker:dev` via Node's `--env-file-if-exists` flag; ignored by git):
 
 ```bash
 cat > .env.local <<'EOF'
@@ -41,9 +41,15 @@ BACKUP_MODE=option1
 CRON_SCHEDULE=0 2 * * *
 MASTER_KEY=
 EOF
+```
 
+Generate a 32-byte (64 hex char) `MASTER_KEY` and append it:
+
+```bash
 echo "MASTER_KEY=$(openssl rand -hex 32)" >> .env.local
 ```
+
+> Keep this key safe — losing it makes every encrypted secret unrecoverable. In production, the same value must be passed to the container via the `MASTER_KEY` env var in `docker-compose.yml` (or `docker run -e MASTER_KEY=…`). `.env.local` is dev-only and never baked into the image.
 
 ## Running in Development
 

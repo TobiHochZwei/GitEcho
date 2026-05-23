@@ -169,8 +169,13 @@ cd GitEcho
 npm install
 
 # .env.local — required: MASTER_KEY
-cp .env.demo.example .env.local
-echo "MASTER_KEY=$(openssl rand -hex 32)" >> .env.local
+# (use .env.example, NOT .env.demo.example — the latter targets the docs-screenshot workspace)
+cp .env.example .env.local
+
+# Generate the 32-byte vault key and replace the empty MASTER_KEY= line.
+# sed replaces in place so no duplicate lines end up in the file.
+KEY=$(openssl rand -hex 32) && sed -i.bak "s/^MASTER_KEY=$/MASTER_KEY=$KEY/" .env.local && rm .env.local.bak
+grep -c '^MASTER_KEY=[A-Fa-f0-9]\{64\}$' .env.local   # should print 1
 
 # Terminal 1
 npm run dev          # web UI on http://localhost:3000

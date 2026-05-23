@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { loadConfig } from '../../lib/config.js';
 import { createReadStream, statSync, existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 
 export const GET: APIRoute = async ({ url }) => {
   const config = loadConfig();
@@ -48,7 +48,7 @@ export const GET: APIRoute = async ({ url }) => {
   }
 
   // Directory: create ZIP on-the-fly
-  const archive = archiver('zip', { zlib: { level: 6 } });
+  const archive = new ZipArchive({ zlib: { level: 6 } });
   const chunks: Uint8Array[] = [];
 
   return new Promise<Response>((resolve, reject) => {

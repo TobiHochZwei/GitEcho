@@ -9,7 +9,6 @@
 
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { chromium } from '@playwright/test';
 
 const PORT = 4174;

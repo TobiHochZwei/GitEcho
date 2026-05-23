@@ -792,7 +792,6 @@ const backupRunning = activeLock !== undefined;
 
     const beforeUnload = (ev: BeforeUnloadEvent) => {
       ev.preventDefault();
-      ev.returnValue = '';
     };
     window.addEventListener('beforeunload', beforeUnload);
 

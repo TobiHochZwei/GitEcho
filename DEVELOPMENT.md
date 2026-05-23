@@ -36,7 +36,7 @@ Create local mount points (matching the container layout):
 mkdir -p .dev/{config,data,backups}
 ```
 
-Create `.env.local` (loaded automatically by Astro, ignored by git):
+Create `.env.local` (loaded by `npm run dev` / `npm run worker:dev` via Node's `--env-file-if-exists` flag; ignored by git):
 
 ```bash
 cat > .env.local <<'EOF'
@@ -46,7 +46,7 @@ CONFIG_DIR=./.dev/config
 BACKUPS_DIR=./.dev/backups
 
 # Required — encrypts the admin password hash, PATs and SMTP secrets.
-# GitEcho refuses to start without it. Generate with: openssl rand -hex 32
+# GitEcho refuses to start without it. Filled in the next step.
 MASTER_KEY=
 
 # Backup behavior
@@ -63,11 +63,21 @@ CRON_SCHEDULE=0 2 * * *
 # GITLAB_PAT_EXPIRES=2026-12-31
 # GITLAB_HOST=gitlab.example.com   # only for self-hosted
 EOF
+```
 
+Generate a 32-byte (64 hex char) `MASTER_KEY` and append it to `.env.local`:
+
+```bash
 echo "MASTER_KEY=$(openssl rand -hex 32)" >> .env.local
 ```
 
-> **Note:** `MASTER_KEY` must be 32 bytes (64 hex chars or base64). If you lose it, every secret stored via the UI is unrecoverable.
+If you ran the snippet above twice (or pre-filled `MASTER_KEY=`), make sure the file contains exactly **one** non-empty `MASTER_KEY=` line — Node uses the **last** occurrence. Verify with:
+
+```bash
+grep -c '^MASTER_KEY=[A-Fa-f0-9]\{64\}$' .env.local   # should print 1
+```
+
+> **Important:** `MASTER_KEY` must decode to 32 bytes (64 hex chars or base64). If you lose it, every secret stored via the UI is unrecoverable. The same value must later be passed to the container in production via the `MASTER_KEY` env var in `docker-compose.yml` (or `docker run -e MASTER_KEY=…`) — `.env.local` is dev-only and never copied into the image.
 
 Optionally pre-seed `.dev/config/repos.txt`:
 
@@ -88,7 +98,7 @@ GitEcho is **two processes**: the Astro web server (UI + APIs) and the backgroun
 npm run dev
 ```
 
-Serves the UI at <http://localhost:3000> with HMR. The dev server reads `.env.local` automatically.
+Serves the UI at <http://localhost:3000> with HMR. The script is wired to launch Node with `--env-file-if-exists=.env.local`, so any keys defined there land in `process.env` before Astro boots.
 
 If you leave `DATA_DIR`, `CONFIG_DIR`, and `BACKUPS_DIR` unset, GitEcho defaults to `.dev/data`, `.dev/config`, and `.dev/backups` on local runs.
 

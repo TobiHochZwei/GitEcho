@@ -16,13 +16,13 @@
   },
   "dependencies": {
     "@astrojs/check": "^0.9.9",
-    "@astrojs/node": "^10.0.6",
+    "@astrojs/node": "^10.1.1",
     "@popperjs/core": "^2.11.8",
-    "admin-lte": "^4.0.0-rc7",
+    "admin-lte": "^4.0.0",
     "archiver": "^7.0.1",
     "astro": "^6.3.7",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "^12.10.0",
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
     "chart.js": "^4.5.1",
@@ -31,14 +31,14 @@
     "nodemailer": "^8.0.7"
   },
   "devDependencies": {
-    "@playwright/test": "^1.49.0",
+    "@playwright/test": "^1.60.0",
     "@types/archiver": "^7.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/bootstrap": "^5.2.10",
     "@types/node": "^22.19.19",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^8.0.0",
-    "tsx": "^4.19.2",
+    "tsx": "^4.22.3",
     "typescript": "^5.9.3"
   },
   "overrides": {

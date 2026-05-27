@@ -86,6 +86,19 @@ To disable the CSRF origin check entirely (not recommended for production):
 PUBLIC_URL="*"
 ```
 
+### Why are only public GitHub repositories discovered?
+
+**Cause:** The configured GitHub PAT does not have the required scope/permissions for private repository discovery.
+
+GitEcho's GitHub discovery path relies on `gh repo list`, and the token must include:
+
+- **Classic PAT:** `repo` and `read:org` (especially required for private org repositories)
+- **Fine-grained PAT:** Repository permissions **Metadata: Read** and **Contents: Read**, plus explicit access to the target repository/repositories or organization
+
+If these permissions are missing, discovery may return only public repositories or an incomplete subset.
+
+**Fix:** Create/update the PAT with the required permissions, then run **Settings → Providers → GitHub → Discover now**.
+
 ## Backup Issues
 
 ### Worker logs `Another process is already running a backup`

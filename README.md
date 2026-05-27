@@ -125,6 +125,13 @@ GitEcho reads configuration from four layers, lowest precedence first:
 
 Provider PATs, SMTP credentials, the cron schedule, the backup mode and discovery filters are intentionally **not** environment variables — they live in the UI so they can be rotated without recreating the container. Env-var fallbacks (`GITHUB_PAT`, `SMTP_HOST`, `BACKUP_MODE`, …) still work for fully declarative deployments — the [environment-variable reference](https://tobihochzwei.github.io/GitEcho/configuration/environment-variables/) lists every accepted name.
 
+For GitHub private repository discovery, PAT scope requirements are mandatory for this code path:
+
+- **Classic PAT:** requires `repo` and `read:org` (especially for private org repositories)
+- **Fine-grained PAT:** requires repository permissions **Metadata: Read** and **Contents: Read**, plus explicit access to the target repository/repositories or organization
+
+If these are missing, discovery can return only public repositories or a partial subset.
+
 ## Security
 
 - **Default credentials are `admin` / `admin`** — GitEcho forces you onto the change-password screen on first sign-in.

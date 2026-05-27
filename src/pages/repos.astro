@@ -71,6 +71,7 @@ function statusVariant(s: string | null): string {
               <tr>
                 <th>Repository</th>
                 <th>Provider</th>
+                <th>Visibility</th>
                 <th>Last sync</th>
                 <th>Status</th>
                 <th class="text-end">Actions</th>
@@ -95,6 +96,13 @@ function statusVariant(s: string | null): string {
                       : repo.provider === 'gitlab'
                         ? <span class="badge text-bg-warning"><i class="bi bi-gitlab me-1"></i>GitLab</span>
                         : <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps</span>}
+                  </td>
+                  <td>
+                    {repo.is_private === 1
+                      ? <span class="badge text-bg-danger-subtle border border-danger-subtle text-danger-emphasis">Private</span>
+                      : repo.is_private === 0
+                        ? <span class="badge text-bg-success-subtle border border-success-subtle text-success-emphasis">Public</span>
+                        : <span class="text-secondary small">Unknown</span>}
                   </td>
                   <td class="small">{repo.last_sync_at ? new Date(repo.last_sync_at).toLocaleString() : <span class="text-secondary">Never</span>}</td>
                   <td>

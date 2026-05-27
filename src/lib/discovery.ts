@@ -181,6 +181,7 @@ export async function runDiscovery(opts: RunDiscoveryOptions = {}): Promise<Disc
           name: repo.name,
           vcsType: repo.vcsType,
           remotePath: repo.remotePath,
+          isPrivate: repo.isPrivate,
         });
         result.repos.push({ plugin, repo });
 

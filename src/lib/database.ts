@@ -21,6 +21,7 @@ export interface Repository {
   provider: string;
   vcs_type: 'git' | 'tfvc';
   remote_path: string | null;
+  is_private: number | null;
   owner: string;
   name: string;
   last_sync_at: string | null;
@@ -103,6 +104,7 @@ const SCHEMA = `
     provider TEXT NOT NULL,
     vcs_type TEXT NOT NULL DEFAULT 'git',
     remote_path TEXT,
+    is_private INTEGER,
     owner TEXT NOT NULL,
     name TEXT NOT NULL,
     last_sync_at TEXT,
@@ -209,6 +211,10 @@ const MIGRATIONS: ReadonlyArray<(instance: DatabaseInstance) => void> = [
     migrateAddColumnIfMissing(instance, 'backup_items', 'source_revision', 'TEXT');
     migrateAddColumnIfMissing(instance, 'backup_items', 'artifact_kind', 'TEXT');
   },
+  // v4 -> v5: persist repository visibility for list display and filtering.
+  (instance) => {
+    instance.exec(`ALTER TABLE repositories ADD COLUMN is_private INTEGER`);
+  },
 ];
 
 // ─── Database initialization ─────────────────────────────────────────
@@ -256,6 +262,7 @@ export function initDatabase(dataDir: string): DatabaseInstance {
     "TEXT NOT NULL DEFAULT 'git'",
   );
   migrateAddColumnIfMissing(instance, 'repositories', 'remote_path', 'TEXT');
+  migrateAddColumnIfMissing(instance, 'repositories', 'is_private', 'INTEGER');
   migrateAddColumnIfMissing(instance, 'backup_items', 'source_revision', 'TEXT');
   migrateAddColumnIfMissing(instance, 'backup_items', 'artifact_kind', 'TEXT');
 
@@ -316,6 +323,7 @@ export function upsertRepository(repo: {
   name: string;
   vcsType?: 'git' | 'tfvc';
   remotePath?: string;
+  isPrivate?: boolean;
 }): Repository {
   const database = getDatabase();
 
@@ -326,12 +334,13 @@ export function upsertRepository(repo: {
   database
     .prepare(
       `
-        INSERT INTO repositories (url, provider, vcs_type, remote_path, owner, name)
-        VALUES (@url, @provider, COALESCE(@vcsType, 'git'), @remotePath, @owner, @name)
+        INSERT INTO repositories (url, provider, vcs_type, remote_path, is_private, owner, name)
+        VALUES (@url, @provider, COALESCE(@vcsType, 'git'), @remotePath, @isPrivate, @owner, @name)
         ON CONFLICT(url) DO UPDATE SET
           provider = excluded.provider,
           vcs_type = COALESCE(@vcsType, repositories.vcs_type),
           remote_path = COALESCE(@remotePath, repositories.remote_path),
+          is_private = COALESCE(@isPrivate, repositories.is_private),
           owner = excluded.owner,
           name = excluded.name,
           updated_at = ${ISO_UTC_NOW}
@@ -341,6 +350,12 @@ export function upsertRepository(repo: {
       ...repo,
       vcsType: repo.vcsType ?? null,
       remotePath: repo.remotePath ?? null,
+      isPrivate:
+        repo.isPrivate === undefined
+          ? null
+          : repo.isPrivate
+            ? 1
+            : 0,
     });
 
   const row = database

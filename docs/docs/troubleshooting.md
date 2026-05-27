@@ -57,6 +57,35 @@ If Synology ACLs are involved (a `+` in the permission bits), also grant full ri
 
 **Fix:** Complete the password change at `/settings/account`.
 
+### Login fails with `Unexpected token 'C', "Cross-site"... is not valid JSON`
+
+**Cause:** The browser is accessing GitEcho via a hostname or port that doesn't match the `PUBLIC_URL` environment variable (or it's not set). The middleware rejects the POST request as a cross-site forgery, returning plain-text `"Cross-site requests are not allowed"` which the browser tries to parse as JSON, triggering the error.
+
+**Fix:** Set `PUBLIC_URL` to match the URL in your browser's address bar:
+
+```bash
+# Example: accessing via http://192.168.1.100:3000
+docker compose down
+export PUBLIC_URL="http://192.168.1.100:3000"
+docker compose up -d
+
+# Or in docker-compose.yml:
+# environment:
+#   PUBLIC_URL: "http://192.168.1.100:3000"
+```
+
+If you have multiple access paths (e.g. `http://localhost:3000` and `http://192.168.1.100:3000`), list them comma-separated:
+
+```bash
+PUBLIC_URL="http://localhost:3000,http://192.168.1.100:3000"
+```
+
+To disable the CSRF origin check entirely (not recommended for production):
+
+```bash
+PUBLIC_URL="*"
+```
+
 ## Backup Issues
 
 ### Worker logs `Another process is already running a backup`

@@ -71,6 +71,8 @@ docker compose up -d
 open http://localhost:3000   # default credentials: admin / admin
 ```
 
+> **Note:** If you're accessing GitEcho from a different hostname/IP (e.g. `192.168.1.100:3000` instead of `localhost:3000`), set `PUBLIC_URL` in your environment or you'll get CSRF login errors. See [Troubleshooting → Login fails with CSRF](https://tobihochzwei.github.io/GitEcho/troubleshooting/#login-fails-with-unexpected-token-c-cross-site-is-not-valid-json).
+
 You'll be forced to change the password on first sign-in. After that, configure provider PATs, SMTP and the cron schedule from **Settings**.
 
 > Full setup instructions, environment-variable reference, reverse-proxy recipes and PAT scopes live in the [user documentation](https://tobihochzwei.github.io/GitEcho/getting-started/).
@@ -116,7 +118,7 @@ GitEcho reads configuration from four layers, lowest precedence first:
 | Variable | Required | Purpose |
 |---|---|---|
 | `MASTER_KEY` | **Yes** | 32-byte key (hex or base64) that encrypts the vault. Generate with `openssl rand -hex 32`. **Lose it and every stored secret is unrecoverable.** |
-| `PUBLIC_URL` | Behind a proxy | External URL(s), comma-separated. Required so cross-origin POSTs aren't rejected with 403. Use `*` to disable the check. |
+| `PUBLIC_URL` | Behind a proxy | External URL(s) the browser uses to reach GitEcho, comma-separated (e.g. `http://192.168.1.100:3000` or `https://gitecho.example.com`). Required to prevent login CSRF rejections. Use `*` only to disable the check. |
 | `DATA_DIR` / `CONFIG_DIR` / `BACKUPS_DIR` | No | Override the three mount paths. |
 | `TZ` | No | Container timezone (IANA name). Affects logs, the UI and cron scheduling. |
 | `LOG_LEVEL`, `LOG_MAX_BYTES` | No | Logging defaults. |

@@ -81,6 +81,11 @@ function statusVariant(s: string | null): string {
                 <tr data-search={`${repo.owner} ${repo.name} ${repo.url}`.toLowerCase()}>
                   <td>
                     <div class="fw-semibold">{repo.owner}/{repo.name}</div>
+                    {repo.vcs_type === 'tfvc' && (
+                      <div class="mt-1">
+                        <span class="badge text-bg-secondary"><i class="bi bi-diagram-3 me-1"></i>TFVC</span>
+                      </div>
+                    )}
                     <div class="text-secondary small text-truncate" style="max-width: 480px;">{repo.url}</div>
                     {repo.last_error && <div class="text-danger small mt-1 text-break" style="max-width: 480px; word-break: break-word; overflow-wrap: anywhere; white-space: normal;"><i class="bi bi-exclamation-circle me-1"></i>{repo.last_error}</div>}
                   </td>
@@ -98,7 +103,11 @@ function statusVariant(s: string | null): string {
                     </span>
                   </td>
                   <td class="text-end">
-                    {config.backupMode === 'option3' ? (
+                    {repo.vcs_type === 'tfvc' ? (
+                      <a href={`/zips/${repo.provider}/${repo.owner}/${repo.name}`} class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-file-earmark-zip me-1"></i>Snapshots
+                      </a>
+                    ) : config.backupMode === 'option3' ? (
                       <a href={`/zips/${repo.provider}/${repo.owner}/${repo.name}`} class="btn btn-sm btn-outline-primary">
                         <i class="bi bi-file-earmark-zip me-1"></i>ZIPs
                       </a>

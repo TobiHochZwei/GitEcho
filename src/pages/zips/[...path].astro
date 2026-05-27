@@ -25,10 +25,14 @@ const repoName = parts[2] || '';
 
 const repoDir = join(config.backupsDir, provider, owner, repoName);
 const option3ZipsDir = join(repoDir, 'zips');
+const tfvcSnapshotsDir = join(repoDir, 'snapshots');
 
 let zipsDir: string | null = null;
 let zipsRelative = '';
-if (existsSync(option3ZipsDir)) {
+if (existsSync(tfvcSnapshotsDir)) {
+  zipsDir = tfvcSnapshotsDir;
+  zipsRelative = `${pathSegments}/snapshots`;
+} else if (existsSync(option3ZipsDir)) {
   zipsDir = option3ZipsDir;
   zipsRelative = `${pathSegments}/zips`;
 } else if (existsSync(repoDir)) {
@@ -44,12 +48,12 @@ if (!zipsDir) {
 } else {
   const items = readdirSync(zipsDir);
   zips = items
-    .filter((name) => name.endsWith('.zip'))
-    .map((name) => {
+    .filter((name: string) => name.endsWith('.zip'))
+    .map((name: string) => {
       const stat = statSync(join(zipsDir!, name));
       return { name, size: stat.size, date: stat.mtime };
     })
-    .sort((a, b) => b.date.getTime() - a.date.getTime());
+    .sort((a: { name: string; size: number; date: Date }, b: { name: string; size: number; date: Date }) => b.date.getTime() - a.date.getTime());
 }
 
 const totalSize = zips.reduce((acc, z) => acc + z.size, 0);

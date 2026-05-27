@@ -140,13 +140,21 @@ function duration(start: string | null, end: string | null): string {
                   <tr>
                     <td>
                       {it.repo
-                        ? <a href={`/settings/repos/${it.repo.id}`} class="text-decoration-none"><span class="text-secondary">{it.repo.provider}/</span><strong>{it.repo.owner}/{it.repo.name}</strong></a>
+                        ? <>
+                            <a href={`/settings/repos/${it.repo.id}`} class="text-decoration-none"><span class="text-secondary">{it.repo.provider}/</span><strong>{it.repo.owner}/{it.repo.name}</strong></a>
+                            {it.repo.vcs_type === 'tfvc' && (
+                              <span class="badge text-bg-secondary ms-2"><i class="bi bi-diagram-3 me-1"></i>TFVC</span>
+                            )}
+                          </>
                         : <code>#{it.repository_id}</code>}
                     </td>
                     <td><span class={`badge text-bg-${statusVariant(it.status)}`}>{it.status}</span></td>
                     <td class="small text-secondary">{duration(it.started_at, it.completed_at)}</td>
                     <td class="small">
                       {it.error && <div class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>{it.error}</div>}
+                      {it.repo?.remote_path && <div class="text-secondary"><i class="bi bi-folder me-1"></i>{it.repo.remote_path}</div>}
+                      {it.artifact_kind && <div class="text-secondary"><i class="bi bi-box-seam me-1"></i>{it.artifact_kind}</div>}
+                      {it.source_revision && <div class="text-secondary"><i class="bi bi-clock-history me-1"></i>revision: {it.source_revision}</div>}
                       {it.checksum && <div class="font-monospace text-secondary" title={it.checksum}>sha256: {it.checksum.slice(0, 16)}…</div>}
                       {it.zip_path && <div class="text-secondary"><i class="bi bi-file-earmark-zip me-1"></i>{it.zip_path}</div>}
                     </td>

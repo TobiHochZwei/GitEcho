@@ -174,6 +174,66 @@ async function readReposTxt(): Promise<
   return entries;
 }
 
+interface TfvcRepoRef {
+  url: string;
+  org: string;
+  project: string;
+  path: string;
+}
+
+/**
+ * Parse a canonical TFVC identifier used by GitEcho.
+ * Format: tfvc://dev.azure.com/<org>/<project>?path=%24%2FProject%2FMain
+ */
+function parseTfvcIdentifier(input: string): TfvcRepoRef | undefined {
+  if (!input.startsWith('tfvc://')) return undefined;
+  try {
+    const u = new URL(input);
+    if (u.host.toLowerCase() !== 'dev.azure.com') return undefined;
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (parts.length < 2) return undefined;
+    const org = decodeURIComponent(parts[0]);
+    const project = decodeURIComponent(parts[1]);
+    const path = u.searchParams.get('path');
+    if (!path) return undefined;
+    return { url: input, org, project, path: decodeURIComponent(path) };
+  } catch {
+    return undefined;
+  }
+}
+
+function tfvcIdentifier(org: string, project: string, serverPath: string): string {
+  const normalized = serverPath.trim().replace(/\/+$/, '');
+  return `tfvc://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}?path=${encodeURIComponent(normalized)}`;
+}
+
+function tfvcDisplayName(serverPath: string, fallbackProject: string): string {
+  const parts = serverPath.split('/').filter(Boolean);
+  const last = parts.length > 0 ? parts[parts.length - 1] : '';
+  return last || fallbackProject;
+}
+
+async function readTfvcReposTxt(): Promise<TfvcRepoRef[]> {
+  const config = getConfig();
+  const reposFile = path.join(config.configDir, 'repos.txt');
+
+  let content: string;
+  try {
+    content = await readFile(reposFile, 'utf-8');
+  } catch {
+    return [];
+  }
+
+  const entries: TfvcRepoRef[] = [];
+  for (const raw of content.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const parsed = parseTfvcIdentifier(line);
+    if (parsed) entries.push(parsed);
+  }
+  return entries;
+}
+
 /**
  * Discover the organization URL. Order of precedence:
  *   1. settings.json via getConfig() (UI-managed — highest priority)
@@ -190,6 +250,11 @@ async function discoverOrgUrl(): Promise<string | undefined> {
   const entries = await readReposTxt();
   if (entries.length > 0) {
     return `https://dev.azure.com/${entries[0].org}`;
+  }
+
+  const tfvcEntries = await readTfvcReposTxt();
+  if (tfvcEntries.length > 0) {
+    return `https://dev.azure.com/${tfvcEntries[0].org}`;
   }
 
   return undefined;
@@ -230,6 +295,52 @@ interface AzRepo {
   webUrl?: string;
   remoteUrl?: string;
   project?: { name?: string };
+}
+
+interface AzInvokeResult<T> {
+  value?: T[];
+  count?: number;
+}
+
+interface TfvcItem {
+  path?: string;
+  isFolder?: boolean;
+  gitObjectType?: string;
+}
+
+async function projectHasTfvcContent(orgUrl: string, projectName: string): Promise<boolean> {
+  try {
+    const json = await execCommand(
+      'az',
+      [
+        'devops',
+        'invoke',
+        '--organization',
+        orgUrl,
+        '--area',
+        'tfvc',
+        '--resource',
+        'items',
+        '--route-parameters',
+        `project=${projectName}`,
+        '--query-parameters',
+        `path=$/${projectName}`,
+        'recursionLevel=None',
+        '--api-version',
+        '7.1-preview.1',
+        '--output',
+        'json',
+      ],
+      { env: azEnv() },
+    );
+
+    const parsed = JSON.parse(json) as AzInvokeResult<TfvcItem>;
+    if ((parsed.count ?? 0) > 0) return true;
+    const values = parsed.value ?? [];
+    return values.some((v) => typeof v.path === 'string' && v.path.startsWith('$/'));
+  } catch {
+    return false;
+  }
 }
 
 export class AzureDevOpsPlugin implements ProviderPlugin {
@@ -282,6 +393,20 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
         name: entry.repo,
         owner: `${entry.org}/${entry.project}`,
         provider: 'azuredevops',
+        vcsType: 'git',
+      });
+    }
+
+    // 1b. TFVC identifiers pinned in repos.txt
+    const tfvcEntries = await readTfvcReposTxt();
+    for (const entry of tfvcEntries) {
+      addRepo({
+        url: entry.url,
+        name: tfvcDisplayName(entry.path, entry.project),
+        owner: `${entry.org}/${entry.project}`,
+        provider: 'azuredevops',
+        vcsType: 'tfvc',
+        remotePath: entry.path,
       });
     }
 
@@ -333,9 +458,30 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
                 name: repo.name,
                 owner: `${orgUrl.replace('https://dev.azure.com/', '')}/${project.name}`,
                 provider: 'azuredevops',
+                vcsType: 'git',
                 isPrivate: projectIsPrivate,
                 ...(defaultBranch ? { defaultBranch } : {}),
               });
+            }
+
+            // TFVC discovery (phase 1 groundwork): when a project has no Git
+            // repositories but exposes TFVC content, register a TFVC root
+            // entry so the repo becomes visible to GitEcho.
+            if (repoList.length === 0) {
+              const hasTfvc = await projectHasTfvcContent(orgUrl, project.name);
+              if (hasTfvc) {
+                const orgName = orgUrl.replace('https://dev.azure.com/', '');
+                const serverPath = `$/` + project.name;
+                addRepo({
+                  url: tfvcIdentifier(orgName, project.name, serverPath),
+                  name: tfvcDisplayName(serverPath, project.name),
+                  owner: `${orgName}/${project.name}`,
+                  provider: 'azuredevops',
+                  vcsType: 'tfvc',
+                  remotePath: serverPath,
+                  isPrivate: projectIsPrivate,
+                });
+              }
             }
           } catch (error) {
             logger.warn(
@@ -468,7 +614,7 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
       ['-C', repoDir, 'ls-remote', '--heads', 'origin'],
       { env: nonInteractiveGitEnv() },
     )
-      .then(({ stdout }) => stdout.trim())
+      .then((result: { stdout: string }) => result.stdout.trim())
       .catch(() => '');
     if (remoteBranchList.length === 0) {
       logger.info(

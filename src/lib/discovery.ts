@@ -179,6 +179,8 @@ export async function runDiscovery(opts: RunDiscoveryOptions = {}): Promise<Disc
           provider: repo.provider,
           owner: repo.owner,
           name: repo.name,
+          vcsType: repo.vcsType,
+          remotePath: repo.remotePath,
         });
         result.repos.push({ plugin, repo });
 

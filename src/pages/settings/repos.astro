@@ -25,6 +25,8 @@ let discoveredRepos: Array<{
   id: number;
   url: string;
   provider: string;
+  vcs_type: 'git' | 'tfvc';
+  remote_path: string | null;
   owner: string;
   name: string;
   last_sync_at: string | null;
@@ -40,6 +42,8 @@ try {
     id: r.id,
     url: r.url,
     provider: r.provider,
+    vcs_type: r.vcs_type,
+    remote_path: r.remote_path,
     owner: r.owner,
     name: r.name,
     last_sync_at: r.last_sync_at,
@@ -186,6 +190,9 @@ function statusBadge(status: string | null): { cls: string; label: string } {
                     <td class="small"><a href={detailHref} class="text-decoration-none"><code>{r.owner}</code></a></td>
                     <td class="small">
                       <a href={detailHref} class="text-decoration-none">{r.name}</a>
+                      {r.vcs_type === 'tfvc' && (
+                        <span class="badge text-bg-secondary ms-1"><i class="bi bi-diagram-3 me-1"></i>TFVC</span>
+                      )}
                       {r.notes && <i class="bi bi-sticky ms-1 text-secondary" title="Has notes"></i>}
                       {r.debug_trace === 1 && (
                         <span class="badge text-bg-warning ms-1" title="Verbose git trace is enabled for this repository">
@@ -261,6 +268,9 @@ function statusBadge(status: string | null): { cls: string; label: string } {
                       : r.provider === 'gitlab'
                         ? <span class="badge text-bg-warning"><i class="bi bi-gitlab me-1"></i>GitLab</span>
                         : <span class="badge text-bg-secondary">Unknown</span>}
+                  {r.url.startsWith('tfvc://') && (
+                    <span class="badge text-bg-secondary ms-1"><i class="bi bi-diagram-3 me-1"></i>TFVC</span>
+                  )}
                 </td>
                 <td><code>{r.url}</code></td>
                 <td class="text-end">

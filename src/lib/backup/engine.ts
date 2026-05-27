@@ -19,6 +19,7 @@ import { getPluginRegistry } from '../plugins/interface';
 import { backupOption1 } from './option1';
 import { backupOption2 } from './option2';
 import { backupOption3 } from './option3';
+import { backupTfvcSnapshot } from './tfvc';
 import { logger, redactSecrets } from '../logger.js';
 import { collectPatExpiryWarnings, type PatWarning } from '../smtp.js';
 import { getStorageUsage } from '../stats.js';
@@ -152,6 +153,8 @@ export async function runBackup(options?: { repositoryId?: number }): Promise<Ba
         provider: repo.provider,
         owner: repo.owner,
         name: repo.name,
+        vcsType: repo.vcsType,
+        remotePath: repo.remotePath,
       });
       if (dbRepo && typeof dbRepo.id === 'number') {
         const item = createBackupItem({ runId: run.id, repositoryId: dbRepo.id });
@@ -174,6 +177,8 @@ export async function runBackup(options?: { repositoryId?: number }): Promise<Ba
       provider: repo.provider,
       owner: repo.owner,
       name: repo.name,
+      vcsType: repo.vcsType,
+      remotePath: repo.remotePath,
     });
     if (!dbRepo || typeof dbRepo.id !== 'number') {
       logger.error(
@@ -207,6 +212,59 @@ export async function runBackup(options?: { repositoryId?: number }): Promise<Ba
       );
       failures.push({ repo: repoLabel, error: 'DB item insert returned no row' });
       failedCount++;
+      continue;
+    }
+
+    if (repo.vcsType === 'tfvc') {
+      const result = await backupTfvcSnapshot(
+        {
+          url: repo.url,
+          provider: repo.provider,
+          owner: repo.owner,
+          name: repo.name,
+          remotePath: repo.remotePath,
+        },
+        backupsDir,
+      );
+      if (result.success) {
+        successCount++;
+        updateRepositorySync(dbRepo.id, 'success', undefined, result.checksum);
+        updateBackupItem(item.id, {
+          status: 'success',
+          checksum: result.checksum ?? null,
+          zip_path: result.zipPath ?? null,
+          source_revision: result.sourceRevision ?? null,
+          artifact_kind: result.artifactKind ?? null,
+          completed_at: new Date().toISOString(),
+        });
+        logger.info(`[backup] ✓ ${repoLabel}${result.zipPath ? ' (new TFVC snapshot)' : ' (unchanged)'}`);
+      } else if (result.unavailable) {
+        unavailableCount++;
+        const error = result.error ?? 'Unknown error';
+        unavailable.push({ repo: repoLabel, url: repo.url, error });
+        updateRepositorySync(dbRepo.id, 'unavailable', error);
+        updateBackupItem(item.id, {
+          status: 'unavailable',
+          error,
+          source_revision: result.sourceRevision ?? null,
+          artifact_kind: result.artifactKind ?? null,
+          completed_at: new Date().toISOString(),
+        });
+        logger.warn(`[backup] ⚠ ${repoLabel} unavailable: ${error}`);
+      } else {
+        failedCount++;
+        const error = result.error ?? 'Unknown error';
+        failures.push({ repo: repoLabel, error });
+        updateRepositorySync(dbRepo.id, 'failed', error);
+        updateBackupItem(item.id, {
+          status: 'failed',
+          error,
+          source_revision: result.sourceRevision ?? null,
+          artifact_kind: result.artifactKind ?? null,
+          completed_at: new Date().toISOString(),
+        });
+        logger.error(`[backup] ✗ ${repoLabel}: ${error}`);
+      }
       continue;
     }
 

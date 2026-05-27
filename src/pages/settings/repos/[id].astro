@@ -107,10 +107,26 @@ const backupRunning = activeLock !== undefined;
           <dt class="col-sm-3">Name</dt>
           <dd class="col-sm-9"><code>{repo.name}</code></dd>
 
+          <dt class="col-sm-3">VCS type</dt>
+          <dd class="col-sm-9">
+            {repo.vcs_type === 'tfvc'
+              ? <span class="badge text-bg-secondary"><i class="bi bi-diagram-3 me-1"></i>TFVC</span>
+              : <span class="badge text-bg-info">Git</span>}
+          </dd>
+
           <dt class="col-sm-3">URL</dt>
           <dd class="col-sm-9">
-            <a href={repo.url} target="_blank" rel="noopener noreferrer">{repo.url}</a>
+            {repo.vcs_type === 'tfvc'
+              ? <code>{repo.url}</code>
+              : <a href={repo.url} target="_blank" rel="noopener noreferrer">{repo.url}</a>}
           </dd>
+
+          {repo.remote_path && (
+            <>
+              <dt class="col-sm-3">Remote path</dt>
+              <dd class="col-sm-9"><code>{repo.remote_path}</code></dd>
+            </>
+          )}
 
           <dt class="col-sm-3">Last sync status</dt>
           <dd class="col-sm-9">
@@ -272,6 +288,7 @@ const backupRunning = activeLock !== undefined;
                   <th>Status</th>
                   <th>Started</th>
                   <th>Completed</th>
+                  <th>Artifact</th>
                   <th>Error</th>
                 </tr>
               </thead>
@@ -284,6 +301,10 @@ const backupRunning = activeLock !== undefined;
                       <td><span class={`badge ${b.cls}`}>{b.label}</span></td>
                       <td class="small text-secondary">{h.started_at ?? h.run_started_at}</td>
                       <td class="small text-secondary">{h.completed_at ?? '—'}</td>
+                      <td class="small text-secondary">
+                        {h.artifact_kind ?? '—'}
+                        {h.source_revision && <span class="ms-1">(rev {h.source_revision})</span>}
+                      </td>
                       <td class="small">
                         {h.error
                           ? <code class="text-danger">{h.error.length > 120 ? h.error.slice(0, 120) + '…' : h.error}</code>

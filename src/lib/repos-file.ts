@@ -19,6 +19,7 @@ export interface RepoLine {
 
 const GITHUB_RE = /^https?:\/\/github\.com\/[^/\s]+\/[^/\s]+(?:\.git)?$/i;
 const AZDO_RE = /^https?:\/\/dev\.azure\.com\/[^/\s]+\/[^/\s]+\/_git\/[^/\s]+$/i;
+const AZDO_TFVC_RE = /^tfvc:\/\/dev\.azure\.com\/[^/\s]+\/[^?\s]+\?path=.+$/i;
 // GitLab supports nested groups: <host>/<group>(/<subgroup>)+/<repo>.
 // We accept gitlab.com as the SaaS default; for self-hosted GitLab the
 // URL must still live under the host configured via GITLAB_HOST / settings.
@@ -42,6 +43,7 @@ function reposPath(): string {
 export function classifyUrl(url: string): 'github' | 'azuredevops' | 'gitlab' | undefined {
   if (GITHUB_RE.test(url)) return 'github';
   if (AZDO_RE.test(url)) return 'azuredevops';
+  if (AZDO_TFVC_RE.test(url)) return 'azuredevops';
   if (GITLAB_COM_RE.test(url)) return 'gitlab';
   const selfHosted = gitlabSelfHostedRe();
   if (selfHosted && selfHosted.test(url)) return 'gitlab';
@@ -103,7 +105,7 @@ export function addRepoUrl(url: string): { added: boolean; reason?: string } {
     return {
       added: false,
       reason:
-        'URL does not match a supported provider. Expected https://github.com/<owner>/<repo>, https://dev.azure.com/<org>/<project>/_git/<repo>, or https://gitlab.com/<group>/<repo> (nested groups supported)',
+        'URL does not match a supported provider. Expected https://github.com/<owner>/<repo>, https://dev.azure.com/<org>/<project>/_git/<repo>, tfvc://dev.azure.com/<org>/<project>?path=$/<project>/<path>, or https://gitlab.com/<group>/<repo> (nested groups supported)',
     };
   }
 

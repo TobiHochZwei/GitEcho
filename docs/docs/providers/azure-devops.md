@@ -28,6 +28,10 @@ Azure DevOps PATs are scoped to one organization at creation time. To back up re
 
 The Azure DevOps provider discovers all repositories via `az devops project list` + `az repos list` and merges them with `repos.txt` entries.
 
+Current behavior is Git-only. TFVC-only projects are not discovered yet.
+
+See the implementation proposal: [TFVC Support Draft](../development/tfvc-implementation.md).
+
 Discovery can be disabled per provider via the **Auto-discover** checkbox on **Settings → Providers**.
 
 ## Configuration

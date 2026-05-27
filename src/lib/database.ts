@@ -19,6 +19,8 @@ export interface Repository {
   id: number;
   url: string;
   provider: string;
+  vcs_type: 'git' | 'tfvc';
+  remote_path: string | null;
   owner: string;
   name: string;
   last_sync_at: string | null;
@@ -64,6 +66,8 @@ export interface BackupItem {
   error: string | null;
   checksum: string | null;
   zip_path: string | null;
+  source_revision: string | null;
+  artifact_kind: string | null;
   started_at: string | null;
   completed_at: string | null;
 }
@@ -97,6 +101,8 @@ const SCHEMA = `
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     url TEXT NOT NULL UNIQUE,
     provider TEXT NOT NULL,
+    vcs_type TEXT NOT NULL DEFAULT 'git',
+    remote_path TEXT,
     owner TEXT NOT NULL,
     name TEXT NOT NULL,
     last_sync_at TEXT,
@@ -135,6 +141,8 @@ const SCHEMA = `
     error TEXT,
     checksum TEXT,
     zip_path TEXT,
+    source_revision TEXT,
+    artifact_kind TEXT,
     started_at TEXT,
     completed_at TEXT
   );
@@ -168,11 +176,13 @@ const MIGRATIONS: ReadonlyArray<(instance: DatabaseInstance) => void> = [
         error TEXT,
         checksum TEXT,
         zip_path TEXT,
+        source_revision TEXT,
+        artifact_kind TEXT,
         started_at TEXT,
         completed_at TEXT
       );
-      INSERT INTO backup_items_new (id, run_id, repository_id, status, error, checksum, zip_path, started_at, completed_at)
-        SELECT id, run_id, repository_id, status, error, checksum, zip_path, started_at, completed_at FROM backup_items;
+      INSERT INTO backup_items_new (id, run_id, repository_id, status, error, checksum, zip_path, source_revision, artifact_kind, started_at, completed_at)
+        SELECT id, run_id, repository_id, status, error, checksum, zip_path, NULL, NULL, started_at, completed_at FROM backup_items;
       DROP TABLE backup_items;
       ALTER TABLE backup_items_new RENAME TO backup_items;
     `);
@@ -184,6 +194,17 @@ const MIGRATIONS: ReadonlyArray<(instance: DatabaseInstance) => void> = [
     instance.exec(
       `ALTER TABLE backup_runs ADD COLUMN cancellation_requested INTEGER NOT NULL DEFAULT 0`,
     );
+  },
+  // v2 -> v3: persist source control type for repositories (git / tfvc)
+  // plus provider-specific remote path metadata.
+  (instance) => {
+    instance.exec(`ALTER TABLE repositories ADD COLUMN vcs_type TEXT NOT NULL DEFAULT 'git'`);
+    instance.exec(`ALTER TABLE repositories ADD COLUMN remote_path TEXT`);
+  },
+  // v3 -> v4: backup item metadata for non-git artifacts (e.g. TFVC snapshots).
+  (instance) => {
+    instance.exec(`ALTER TABLE backup_items ADD COLUMN source_revision TEXT`);
+    instance.exec(`ALTER TABLE backup_items ADD COLUMN artifact_kind TEXT`);
   },
 ];
 
@@ -225,6 +246,15 @@ export function initDatabase(dataDir: string): DatabaseInstance {
   );
   migrateAddColumnIfMissing(instance, 'repositories', 'archived_at', 'TEXT');
   migrateAddColumnIfMissing(instance, 'repositories', 'archive_path', 'TEXT');
+  migrateAddColumnIfMissing(
+    instance,
+    'repositories',
+    'vcs_type',
+    "TEXT NOT NULL DEFAULT 'git'",
+  );
+  migrateAddColumnIfMissing(instance, 'repositories', 'remote_path', 'TEXT');
+  migrateAddColumnIfMissing(instance, 'backup_items', 'source_revision', 'TEXT');
+  migrateAddColumnIfMissing(instance, 'backup_items', 'artifact_kind', 'TEXT');
 
   runMigrations(instance);
 
@@ -281,6 +311,8 @@ export function upsertRepository(repo: {
   provider: string;
   owner: string;
   name: string;
+  vcsType?: 'git' | 'tfvc';
+  remotePath?: string;
 }): Repository {
   const database = getDatabase();
 
@@ -291,16 +323,22 @@ export function upsertRepository(repo: {
   database
     .prepare(
       `
-        INSERT INTO repositories (url, provider, owner, name)
-        VALUES (@url, @provider, @owner, @name)
+        INSERT INTO repositories (url, provider, vcs_type, remote_path, owner, name)
+        VALUES (@url, @provider, COALESCE(@vcsType, 'git'), @remotePath, @owner, @name)
         ON CONFLICT(url) DO UPDATE SET
           provider = excluded.provider,
+          vcs_type = COALESCE(@vcsType, repositories.vcs_type),
+          remote_path = COALESCE(@remotePath, repositories.remote_path),
           owner = excluded.owner,
           name = excluded.name,
           updated_at = ${ISO_UTC_NOW}
       `,
     )
-    .run(repo);
+    .run({
+      ...repo,
+      vcsType: repo.vcsType ?? null,
+      remotePath: repo.remotePath ?? null,
+    });
 
   const row = database
     .prepare('SELECT * FROM repositories WHERE url = ?')
@@ -521,6 +559,8 @@ export interface RepositoryBackupHistoryEntry {
   error: string | null;
   checksum: string | null;
   zip_path: string | null;
+  source_revision: string | null;
+  artifact_kind: string | null;
   started_at: string | null;
   completed_at: string | null;
   run_started_at: string;
@@ -549,6 +589,8 @@ export function getRepositoryWithHistory(
               bi.error         AS error,
               bi.checksum      AS checksum,
               bi.zip_path      AS zip_path,
+              bi.source_revision AS source_revision,
+              bi.artifact_kind   AS artifact_kind,
               bi.started_at    AS started_at,
               bi.completed_at  AS completed_at,
               br.started_at    AS run_started_at,
@@ -686,6 +728,14 @@ export function updateBackupItem(id: number, updates: Partial<BackupItem>): void
   if (updates.zip_path !== undefined) {
     fields.push('zip_path = @zip_path');
     values.zip_path = updates.zip_path;
+  }
+  if (updates.source_revision !== undefined) {
+    fields.push('source_revision = @source_revision');
+    values.source_revision = updates.source_revision;
+  }
+  if (updates.artifact_kind !== undefined) {
+    fields.push('artifact_kind = @artifact_kind');
+    values.artifact_kind = updates.artifact_kind;
   }
   if (updates.completed_at !== undefined) {
     fields.push('completed_at = @completed_at');

@@ -3,6 +3,10 @@ export interface RepositoryInfo {
   name: string;
   owner: string;
   provider: string;
+  /** Source control type. Defaults to git when omitted. */
+  vcsType?: 'git' | 'tfvc';
+  /** Optional remote path for non-Git providers (e.g. TFVC server path). */
+  remotePath?: string;
   defaultBranch?: string;
   isPrivate?: boolean;
   description?: string;

@@ -292,6 +292,9 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
 
   <!-- Recent runs -->
   <Card title={`Recent backup runs`} icon="bi-list-task">
+    <button id="refresh-recent-runs" type="button" class="btn btn-sm btn-outline-secondary" slot="header-actions">
+      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+    </button>
     <div id="recent-runs">
       <p id="recent-runs-empty" class="text-secondary mb-0" hidden={recentRuns.length !== 0}>No backup runs yet.</p>
       <div class="table-responsive" id="recent-runs-table" hidden={recentRuns.length === 0}>
@@ -483,8 +486,11 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
         if (runBtn) runBtn.disabled = false;
         if (stopBtn) stopBtn.disabled = true;
       }
+      return true;
     } catch {
-      // ignore
+      // Swallowed so the 5s background poll never spams the user; the manual
+      // refresh handler inspects the returned boolean to surface failures.
+      return false;
     }
   }
 
@@ -551,6 +557,25 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
     const ageEl = document.getElementById('storage-age');
     if (ageEl) ageEl.textContent = 'computed just now';
     toast('Storage usage updated', 'success');
+  });
+
+  // Manual refresh of the Recent backup runs grid. The grid also auto-refreshes
+  // via the 5s status poll above; this gives the user an explicit control with
+  // visible feedback and a toast on failure (the poll stays silent).
+  const refreshRecentBtn = document.getElementById('refresh-recent-runs') as HTMLButtonElement | null;
+  refreshRecentBtn?.addEventListener('click', async () => {
+    const original = refreshRecentBtn.innerHTML;
+    refreshRecentBtn.disabled = true;
+    refreshRecentBtn.setAttribute('aria-busy', 'true');
+    refreshRecentBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Refreshing…';
+    try {
+      const ok = await refreshStatus();
+      if (!ok) toast('Failed to refresh recent runs', 'danger');
+    } finally {
+      refreshRecentBtn.disabled = false;
+      refreshRecentBtn.removeAttribute('aria-busy');
+      refreshRecentBtn.innerHTML = original;
+    }
   });
 
   refreshStatus();

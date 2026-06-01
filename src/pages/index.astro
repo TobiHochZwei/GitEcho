@@ -276,10 +276,9 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
 
   <!-- Recent runs -->
   <Card title={`Recent backup runs`} icon="bi-list-task">
-    {recentRuns.length === 0 ? (
-      <p class="text-secondary mb-0">No backup runs yet.</p>
-    ) : (
-      <div class="table-responsive">
+    <div id="recent-runs">
+      <p id="recent-runs-empty" class="text-secondary mb-0" hidden={recentRuns.length !== 0}>No backup runs yet.</p>
+      <div class="table-responsive" id="recent-runs-table" hidden={recentRuns.length === 0}>
         <table class="table table-hover align-middle mb-0">
           <thead>
             <tr>
@@ -293,7 +292,7 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
               <th></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="recent-runs-body">
             {recentRuns.map((r: any) => (
               <tr>
                 <td class="font-monospace">#{r.id}</td>
@@ -313,7 +312,7 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
           </tbody>
         </table>
       </div>
-    )}
+    </div>
   </Card>
 </Layout>
 
@@ -358,11 +357,101 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
   // knows which run to cancel. Refreshed on every status poll.
   let currentRunId: number | null = null;
 
+  // Recent runs table elements.
+  const recentEmptyEl = document.getElementById('recent-runs-empty');
+  const recentTableEl = document.getElementById('recent-runs-table');
+  const recentBodyEl = document.getElementById('recent-runs-body');
+
+  type RecentRun = {
+    id: number;
+    started_at: string;
+    status: string;
+    repos_total: number;
+    repos_success: number;
+    repos_failed: number;
+    backup_mode: string;
+  };
+
+  function badgeVariant(status: string): string {
+    if (status === 'success') return 'success';
+    if (status === 'failed') return 'danger';
+    if (status === 'running') return 'info';
+    return 'warning';
+  }
+
+  // Rebuilds the Recent backup runs table from poll data. Uses textContent /
+  // createElement throughout so database values are never interpreted as HTML
+  // (XSS-safe); the only interpolated URL uses the numeric run id.
+  function renderRecentRuns(runs: RecentRun[]) {
+    if (!recentEmptyEl || !recentTableEl || !recentBodyEl) return;
+    if (!Array.isArray(runs) || runs.length === 0) {
+      recentEmptyEl.hidden = false;
+      recentTableEl.hidden = true;
+      recentBodyEl.replaceChildren();
+      return;
+    }
+    recentEmptyEl.hidden = true;
+    recentTableEl.hidden = false;
+
+    const rows = runs.map((r) => {
+      const tr = document.createElement('tr');
+
+      const idTd = document.createElement('td');
+      idTd.className = 'font-monospace';
+      idTd.textContent = `#${r.id}`;
+      tr.appendChild(idTd);
+
+      const startedTd = document.createElement('td');
+      startedTd.textContent = new Date(r.started_at).toLocaleString();
+      tr.appendChild(startedTd);
+
+      const statusTd = document.createElement('td');
+      const badge = document.createElement('span');
+      badge.className = `badge text-bg-${badgeVariant(r.status)}`;
+      badge.textContent = r.status;
+      statusTd.appendChild(badge);
+      tr.appendChild(statusTd);
+
+      const totalTd = document.createElement('td');
+      totalTd.className = 'text-end';
+      totalTd.textContent = String(r.repos_total);
+      tr.appendChild(totalTd);
+
+      const successTd = document.createElement('td');
+      successTd.className = 'text-end text-success';
+      successTd.textContent = String(r.repos_success);
+      tr.appendChild(successTd);
+
+      const failedTd = document.createElement('td');
+      failedTd.className = 'text-end text-danger';
+      failedTd.textContent = String(r.repos_failed);
+      tr.appendChild(failedTd);
+
+      const modeTd = document.createElement('td');
+      const code = document.createElement('code');
+      code.textContent = r.backup_mode;
+      modeTd.appendChild(code);
+      tr.appendChild(modeTd);
+
+      const linkTd = document.createElement('td');
+      const link = document.createElement('a');
+      link.className = 'btn btn-sm btn-outline-primary';
+      link.href = `/runs/${Number(r.id)}`;
+      link.textContent = 'Details';
+      linkTd.appendChild(link);
+      tr.appendChild(linkTd);
+
+      return tr;
+    });
+    recentBodyEl.replaceChildren(...rows);
+  }
+
   async function refreshStatus() {
     try {
       const res = await fetch('/api/backup/trigger');
       const j = await res.json();
       currentRunId = typeof j.runningRunId === 'number' ? j.runningRunId : null;
+      if (Array.isArray(j.recentRuns)) renderRecentRuns(j.recentRuns);
       if (j.running) {
         if (statusEl) {
           statusEl.textContent = currentRunId

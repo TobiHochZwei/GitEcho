@@ -20,13 +20,17 @@ function ensureInit() {
 export const GET: APIRoute = async () => {
   ensureInit();
   const lock = inspectBackupLock();
-  // Find the currently running run, if any, so the UI can offer a
-  // cancel action without needing a separate endpoint.
+  // Load the most recent runs once and derive both the running-run id (so
+  // the UI can offer a cancel action) and the list the dashboard renders to
+  // keep its "Recent backup runs" table fresh without a full page reload.
+  let recentRuns: Awaited<ReturnType<typeof getBackupRuns>> = [];
   let runningRunId: number | null = null;
   try {
-    const latest = getBackupRuns(5).find((r) => r.status === 'running');
+    recentRuns = getBackupRuns(5);
+    const latest = recentRuns.find((r) => r.status === 'running');
     if (latest) runningRunId = latest.id;
   } catch {
+    recentRuns = [];
     runningRunId = null;
   }
   return new Response(
@@ -34,6 +38,7 @@ export const GET: APIRoute = async () => {
       running: Boolean(lock),
       lock,
       runningRunId,
+      recentRuns,
     }),
     { headers: { 'Content-Type': 'application/json' } },
   );

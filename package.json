@@ -1,7 +1,7 @@
 {
   "name": "gitecho",
   "type": "module",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "GitHub/Azure DevOps repository backup tool",
   "scripts": {
     "dev": "node --env-file-if-exists=.env.local ./node_modules/astro/bin/astro.mjs dev",

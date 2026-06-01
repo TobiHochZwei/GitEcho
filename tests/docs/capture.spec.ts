@@ -129,6 +129,15 @@ test('settings — providers github', async ({ page }) => {
   }
 });
 
+test('settings — providers deep-link activates the correct tab', async ({ page }) => {
+  // Regression for issue #27: dashboard "Configure" links carry a tab hash
+  // so the matching provider opens instead of the server-default GitHub tab.
+  await page.goto('/settings/providers#tab-azureDevOps');
+  await expect(page.locator('#pane-azureDevOps')).toBeVisible();
+  await expect(page.locator('#pane-github')).toBeHidden();
+  await expect(page.locator('#tab-azureDevOps')).toHaveClass(/active/);
+});
+
 test('settings — smtp', async ({ page }) => {
   await page.goto('/settings/smtp');
   await shoot(page, 'settings-smtp');

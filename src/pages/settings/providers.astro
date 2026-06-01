@@ -289,6 +289,7 @@ const providers = [
 </Layout>
 
 <script>
+  import { Tab } from 'bootstrap';
   import { toast } from '../../scripts/toasts.ts';
 
   function parseList(value: FormDataEntryValue | null): string[] {
@@ -297,6 +298,30 @@ const providers = [
       .map((s) => s.trim())
       .filter(Boolean);
   }
+
+  // Deep-linking: activate the tab named in the URL hash (e.g.
+  // `#tab-azureDevOps` or `#pane-azureDevOps`) so dashboard "Configure"
+  // links open the correct provider instead of the server-default first
+  // tab. The ESM Bootstrap build does not auto-activate tabs from the
+  // hash, so we do it explicitly.
+  function activateTabFromHash(): void {
+    const hash = location.hash.replace(/^#/, '');
+    if (!hash) return;
+    const key = hash.replace(/^(tab-|pane-)/, '');
+    const button = document.getElementById(`tab-${key}`);
+    if (button) Tab.getOrCreateInstance(button).show();
+  }
+
+  activateTabFromHash();
+  window.addEventListener('hashchange', activateTabFromHash);
+
+  // Keep the hash in sync when the user switches tabs, so the active
+  // provider survives a refresh or bookmark without scrolling the page.
+  document.querySelectorAll<HTMLButtonElement>('#provider-tabs [data-bs-toggle="tab"]').forEach((btn) => {
+    btn.addEventListener('shown.bs.tab', () => {
+      history.replaceState(null, '', `#${btn.id}`);
+    });
+  });
 
   document.querySelectorAll<HTMLButtonElement>('[data-toggle-pass]').forEach((btn) => {
     btn.addEventListener('click', () => {

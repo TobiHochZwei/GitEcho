@@ -76,7 +76,18 @@ tfvc://dev.azure.com/contoso/PaymentsApp?path=$/PaymentsApp/Main
 
 Snapshots are browsable from the repository's **Snapshots** action in the web UI. Over time these accumulate — enable [snapshot retention](../backup-modes.md#snapshot-retention) to prune old TFVC snapshots automatically.
 
-For the full design and roadmap (changeset-aware incremental mode, restore guidance), see [TFVC Support](../development/tfvc-implementation.md).
+### Restoring a TFVC snapshot
+
+A TFVC snapshot is a self-contained `.zip` of the server path's contents at a point in time — there is no GitEcho-side "restore" button; you recover by extracting the archive:
+
+1. Open the repository's **Snapshots** action in the web UI and **Download** the snapshot you want (the run detail page shows each snapshot's changeset id under `revision`, so you can pick a specific point in time).
+2. Extract the `.zip`. The result is the full contents of the server path (for example `$/PaymentsApp/Main`) as of that snapshot's changeset.
+3. Use the files directly, or to return them to TFVC: create a TFVC workspace mapped to the target server path, copy the extracted files in, and **check in** the changes.
+
+!!! note
+    A snapshot captures **content only**, not changeset history, labels, or branch structure. Checking an extracted snapshot back into TFVC creates a single new changeset rather than replaying the original history. For point-in-time content recovery this is sufficient; full history mirroring is out of scope (see the [roadmap](../development/tfvc-implementation.md#fidelity-limitations)).
+
+For the full design and roadmap (Phase 2 changeset-metadata capture, Phase 3 run-detail and restore UX), see [TFVC Support](../development/tfvc-implementation.md).
 
 ## Configuration
 

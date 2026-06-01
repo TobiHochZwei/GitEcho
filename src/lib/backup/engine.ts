@@ -156,6 +156,7 @@ export async function runBackup(options?: { repositoryId?: number }): Promise<Ba
         name: repo.name,
         vcsType: repo.vcsType,
         remotePath: repo.remotePath,
+        isPrivate: repo.isPrivate,
       });
       if (dbRepo && typeof dbRepo.id === 'number') {
         const item = createBackupItem({ runId: run.id, repositoryId: dbRepo.id });
@@ -180,6 +181,7 @@ export async function runBackup(options?: { repositoryId?: number }): Promise<Ba
       name: repo.name,
       vcsType: repo.vcsType,
       remotePath: repo.remotePath,
+      isPrivate: repo.isPrivate,
     });
     if (!dbRepo || typeof dbRepo.id !== 'number') {
       logger.error(

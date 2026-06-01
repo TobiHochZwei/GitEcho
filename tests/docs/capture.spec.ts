@@ -68,6 +68,8 @@ test('dashboard', async ({ page }) => {
 
 test('repos list', async ({ page }) => {
   await page.goto('/repos');
+  await expect(page.getByRole('columnheader', { name: 'Visibility' })).toBeVisible();
+  await expect(page.locator('#repo-tbody tr td:nth-child(3)').first()).toContainText(/Public|Private|Unknown/);
   await shoot(page, 'repos-list');
 });
 

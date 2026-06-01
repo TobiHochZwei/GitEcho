@@ -648,6 +648,23 @@ export function getRepositoryWithHistory(
   return { repo, history };
 }
 
+/**
+ * Return the set of repository ids that have at least one successful backup
+ * item. Used by the repositories management UI to identify entries that have
+ * never produced a usable backup.
+ */
+export function getRepoIdsWithSuccessfulBackups(): Set<number> {
+  const database = getDatabase();
+  const rows = database
+    .prepare(
+      `SELECT DISTINCT repository_id AS id
+         FROM backup_items
+        WHERE status = 'success' AND repository_id IS NOT NULL`,
+    )
+    .all() as Array<{ id: number }>;
+  return new Set(rows.map((r) => r.id));
+}
+
 // ─── Backup runs ─────────────────────────────────────────────────────
 
 export function createBackupRun(mode: string): BackupRun {

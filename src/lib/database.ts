@@ -69,6 +69,7 @@ export interface BackupItem {
   zip_path: string | null;
   source_revision: string | null;
   artifact_kind: string | null;
+  source_metadata: string | null;
   started_at: string | null;
   completed_at: string | null;
 }
@@ -145,6 +146,7 @@ const SCHEMA = `
     zip_path TEXT,
     source_revision TEXT,
     artifact_kind TEXT,
+    source_metadata TEXT,
     started_at TEXT,
     completed_at TEXT
   );
@@ -216,6 +218,12 @@ const MIGRATIONS: ReadonlyArray<(instance: DatabaseInstance) => void> = [
   (instance) => {
     migrateAddColumnIfMissing(instance, 'repositories', 'is_private', 'INTEGER');
   },
+  // v5 -> v6: capture changeset history metadata for TFVC snapshots as JSON
+  // (latest changeset plus the changesets since the last successful snapshot).
+  // Guarded for the same fresh-install reason as v2 -> v3.
+  (instance) => {
+    migrateAddColumnIfMissing(instance, 'backup_items', 'source_metadata', 'TEXT');
+  },
 ];
 
 // ─── Database initialization ─────────────────────────────────────────
@@ -266,6 +274,7 @@ export function initDatabase(dataDir: string): DatabaseInstance {
   migrateAddColumnIfMissing(instance, 'repositories', 'is_private', 'INTEGER');
   migrateAddColumnIfMissing(instance, 'backup_items', 'source_revision', 'TEXT');
   migrateAddColumnIfMissing(instance, 'backup_items', 'artifact_kind', 'TEXT');
+  migrateAddColumnIfMissing(instance, 'backup_items', 'source_metadata', 'TEXT');
 
   runMigrations(instance);
 
@@ -603,6 +612,7 @@ export interface RepositoryBackupHistoryEntry {
   zip_path: string | null;
   source_revision: string | null;
   artifact_kind: string | null;
+  source_metadata: string | null;
   started_at: string | null;
   completed_at: string | null;
   run_started_at: string;
@@ -633,6 +643,7 @@ export function getRepositoryWithHistory(
               bi.zip_path      AS zip_path,
               bi.source_revision AS source_revision,
               bi.artifact_kind   AS artifact_kind,
+              bi.source_metadata AS source_metadata,
               bi.started_at    AS started_at,
               bi.completed_at  AS completed_at,
               br.started_at    AS run_started_at,
@@ -795,6 +806,10 @@ export function updateBackupItem(id: number, updates: Partial<BackupItem>): void
   if (updates.artifact_kind !== undefined) {
     fields.push('artifact_kind = @artifact_kind');
     values.artifact_kind = updates.artifact_kind;
+  }
+  if (updates.source_metadata !== undefined) {
+    fields.push('source_metadata = @source_metadata');
+    values.source_metadata = updates.source_metadata;
   }
   if (updates.completed_at !== undefined) {
     fields.push('completed_at = @completed_at');

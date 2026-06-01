@@ -47,7 +47,7 @@ Discovery can be disabled per provider via the **Auto-discover** checkbox on **S
 
 ## TFVC Support
 
-TFVC sources are backed up as **latest-state snapshots**: GitEcho exports the current contents of a server path as a `.zip` into backup storage. This is a point-in-time content backup — it does **not** capture changeset history, labels, branch structure, or changeset metadata. The changeset id of the latest export is recorded as the snapshot's revision, and unchanged paths are skipped on subsequent runs.
+TFVC sources are backed up as **latest-state snapshots**: GitEcho exports the current contents of a server path as a `.zip` into backup storage. This is a point-in-time content backup — it does **not** capture file history versions, labels, or branch structure. The changeset id of the latest export is recorded as the snapshot's revision, the changeset history that produced the snapshot is captured as metadata, and unchanged paths are skipped on subsequent runs.
 
 ### How TFVC backup works
 
@@ -56,7 +56,8 @@ Because the official TFVC CLI (`tf.exe`) is Windows/Visual Studio bound, GitEcho
 1. **Discover** — for each project, GitEcho checks for TFVC content via `_apis/tfvc/items`. Projects with no Git repos are probed automatically; set `AZUREDEVOPS_TFVC_DISCOVER_ALL=true` to probe every project (for mixed Git + TFVC projects).
 2. **Check the latest changeset** — it reads the most recent changeset id from `_apis/tfvc/changesets`. If it matches the last successful snapshot's recorded revision, the export is **skipped** (nothing changed).
 3. **Export** — otherwise it downloads the current contents of the server path through `_apis/tfvc/items` and writes them into a `.zip` under `<provider>/<owner>/<name>/snapshots/`.
-4. **Record** — the snapshot's changeset id is stored as `source_revision` and the entry is marked `artifact_kind = snapshot` with `vcs_type = tfvc`, so the UI and APIs distinguish it from Git mirrors.
+4. **Capture changeset metadata** — it records the changesets between the last successful snapshot's revision and the current latest changeset (id, author, comment, date) as JSON on the backup item, so you can see *what changed* without opening the archive.
+5. **Record** — the snapshot's changeset id is stored as `source_revision` and the entry is marked `artifact_kind = snapshot` with `vcs_type = tfvc`, so the UI and APIs distinguish it from Git mirrors.
 
 TFVC snapshots are always produced this way regardless of the configured `BACKUP_MODE` (which only governs Git repositories).
 
@@ -80,14 +81,14 @@ Snapshots are browsable from the repository's **Snapshots** action in the web UI
 
 A TFVC snapshot is a self-contained `.zip` of the server path's contents at a point in time — there is no GitEcho-side "restore" button; you recover by extracting the archive:
 
-1. Open the repository's **Snapshots** action in the web UI and **Download** the snapshot you want (the run detail page shows each snapshot's changeset id under `revision`, so you can pick a specific point in time).
+1. Open the repository's **Snapshots** action in the web UI and **Download** the snapshot you want (the run detail page shows each snapshot's changeset id under `revision` along with the captured changeset history, so you can pick a specific point in time).
 2. Extract the `.zip`. The result is the full contents of the server path (for example `$/PaymentsApp/Main`) as of that snapshot's changeset.
 3. Use the files directly, or to return them to TFVC: create a TFVC workspace mapped to the target server path, copy the extracted files in, and **check in** the changes.
 
 !!! note
-    A snapshot captures **content only**, not changeset history, labels, or branch structure. Checking an extracted snapshot back into TFVC creates a single new changeset rather than replaying the original history. For point-in-time content recovery this is sufficient; full history mirroring is out of scope (see the [roadmap](../development/tfvc-implementation.md#fidelity-limitations)).
+    A snapshot captures **content only** plus changeset *metadata* — not the prior file versions, labels, or branch structure. Checking an extracted snapshot back into TFVC creates a single new changeset rather than replaying the original history. For point-in-time content recovery this is sufficient; full history mirroring is out of scope (see the [roadmap](../development/tfvc-implementation.md#fidelity-limitations)).
 
-For the full design and roadmap (Phase 2 changeset-metadata capture, Phase 3 run-detail and restore UX), see [TFVC Support](../development/tfvc-implementation.md).
+For the full design (changeset-metadata capture and run-detail/restore UX), see [TFVC Support](../development/tfvc-implementation.md).
 
 ## Configuration
 

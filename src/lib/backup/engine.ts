@@ -238,6 +238,7 @@ export async function runBackup(options?: { repositoryId?: number }): Promise<Ba
           zip_path: result.zipPath ?? null,
           source_revision: result.sourceRevision ?? null,
           artifact_kind: result.artifactKind ?? null,
+          source_metadata: result.sourceMetadata ?? null,
           completed_at: new Date().toISOString(),
         });
         logger.info(`[backup] ✓ ${repoLabel}${result.zipPath ? ' (new TFVC snapshot)' : ' (unchanged)'}`);

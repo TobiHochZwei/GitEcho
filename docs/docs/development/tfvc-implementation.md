@@ -1,8 +1,9 @@
 # TFVC Support
 
-This document describes GitEcho's support for Azure DevOps TFVC sources. **Phase 1
-(latest-state snapshot backups) is implemented and shipped.** Phases 2–3 are the
-forward-looking roadmap.
+This document describes GitEcho's support for Azure DevOps TFVC sources. **Phases
+1–3 are implemented and shipped:** latest-state snapshot backups (Phase 1),
+changeset history metadata capture (Phase 2), and restore guidance plus
+TFVC-focused run details (Phase 3).
 
 ## Goal
 
@@ -62,7 +63,7 @@ backup is a **latest-state snapshot** and therefore does **not** capture:
 It is suitable for recovering current source. Phase 2 narrows part of this gap
 by recording the changeset history *metadata* alongside each snapshot.
 
-### Phase 2 (planned): Changeset Metadata Capture
+### Phase 2 (shipped): Changeset Metadata Capture
 
 Phase 2 keeps the full-tree snapshot model but enriches each backup with the
 **changeset history that produced it**, so operators can see *what changed*
@@ -75,7 +76,7 @@ without parsing the archive.
   snapshot and their count.
 - Surface this metadata in the UI (see Phase 3 run detail).
 
-> **Groundwork already in place:** each successful snapshot records the latest
+> **How it builds on Phase 1:** each successful snapshot records the latest
 > changeset id (`source_revision`). Before downloading, a backup compares the
 > current latest changeset against the last successful one and skips the export
 > when unchanged. Phase 2 adds the per-snapshot changeset *history* on top of
@@ -91,14 +92,15 @@ are retained — Phase 2 does **not** change how content is stored.
 > skip already avoids redundant full exports. The `artifact_kind` column still
 > reserves `incremental` should this be revisited.
 
-### Phase 3 (planned): Restore and UX Enhancements
+### Phase 3 (shipped): Restore and UX Enhancements
 
 - **Restore guidance** — documented steps for extracting a TFVC snapshot and
   returning it to a TFVC workspace (see the
   [Azure DevOps provider page](../providers/azure-devops.md#restoring-a-tfvc-snapshot)).
-- **TFVC-focused run details** — render the Phase 2 changeset metadata on the
-  run detail page: how many changesets the snapshot includes, the latest
-  changeset's author/comment/date, and the server path.
+- **TFVC-focused run details** — the run detail page renders the Phase 2
+  changeset metadata: how many changesets the snapshot includes, the latest
+  changeset's author/comment/date, and a collapsible list of the included
+  changesets alongside the server path.
 
 > **Not planned:** advanced include/exclude path filters for TFVC exports. The
 > snapshot always captures the full server path; scoping is done by pinning a
@@ -156,8 +158,8 @@ TFVC metadata stored on each backup item:
 
 - `source_revision` (latest changeset id captured for the snapshot)
 - `artifact_kind` (`snapshot`; `incremental` reserved, see Phase 2 note)
-- `source_metadata` (Phase 2, nullable JSON): the changeset history for the
-  snapshot. Shape:
+- `source_metadata` (nullable JSON): the changeset history for the snapshot,
+  captured in Phase 2. Shape:
 
 ```json
 {
@@ -229,10 +231,9 @@ is only written when content changes).
 ### Run Detail
 
 - Show the TFVC artifact path and latest changeset (`source_revision`) — shipped.
-- **Phase 3:** render the `source_metadata` changeset history — how many
-  changesets the snapshot includes, the latest changeset's author/comment/date,
-  and a collapsible list of the included changesets. The same summary can be
-  surfaced in the per-repository history on the repository detail page.
+- Render the `source_metadata` changeset history — how many changesets the
+  snapshot includes, the latest changeset's author/comment/date, and a
+  collapsible list of the included changesets — shipped.
 
 ## Filtering Behavior
 

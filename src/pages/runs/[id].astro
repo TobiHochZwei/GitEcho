@@ -16,8 +16,58 @@ if (Number.isFinite(id) && id > 0) {
     items = getBackupItems(id).map((it) => ({
       ...it,
       repo: it.repository_id != null ? (getRepository(it.repository_id) ?? null) : null,
+      meta: parseSourceMetadata(it.source_metadata),
     }));
   }
+}
+
+interface ChangesetMeta {
+  id: string;
+  author?: string;
+  comment?: string;
+  date?: string;
+}
+interface TfvcSourceMetadata {
+  latest: ChangesetMeta;
+  changesets: ChangesetMeta[];
+  count: number;
+}
+
+function sanitizeChangeset(raw: any): ChangesetMeta | null {
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.id == null) return null;
+  return {
+    id: String(raw.id),
+    author: typeof raw.author === 'string' ? raw.author : undefined,
+    comment: typeof raw.comment === 'string' ? raw.comment : undefined,
+    date: typeof raw.date === 'string' ? raw.date : undefined,
+  };
+}
+
+function parseSourceMetadata(raw: string | null): TfvcSourceMetadata | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.changesets)) {
+      return null;
+    }
+    const changesets = parsed.changesets
+      .map(sanitizeChangeset)
+      .filter((cs: ChangesetMeta | null): cs is ChangesetMeta => cs !== null);
+    const latest = sanitizeChangeset(parsed.latest) ?? changesets[0];
+    if (!latest) return null;
+    const count = Number.isFinite(parsed.count) ? Number(parsed.count) : changesets.length;
+    return { latest, changesets, count };
+  } catch {
+    // Ignore malformed metadata — it must never break the run view.
+  }
+  return null;
+}
+
+function shortComment(comment: string | undefined, max = 80): string {
+  if (!comment) return '';
+  const trimmed = comment.trim();
+  return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed;
 }
 
 function statusVariant(s: string): string {
@@ -155,6 +205,36 @@ function duration(start: string | null, end: string | null): string {
                       {it.repo?.remote_path && <div class="text-secondary"><i class="bi bi-folder me-1"></i>{it.repo.remote_path}</div>}
                       {it.artifact_kind && <div class="text-secondary"><i class="bi bi-box-seam me-1"></i>{it.artifact_kind}</div>}
                       {it.source_revision && <div class="text-secondary"><i class="bi bi-clock-history me-1"></i>revision: {it.source_revision}</div>}
+                      {it.meta && (
+                        <div class="text-secondary mt-1">
+                          <div>
+                            <i class="bi bi-list-columns-reverse me-1"></i>
+                            {it.meta.count} changeset{it.meta.count === 1 ? '' : 's'} included
+                          </div>
+                          {it.meta.latest && (
+                            <div class="ms-3">
+                              latest <code>{it.meta.latest.id}</code>
+                              {it.meta.latest.author && <> by {it.meta.latest.author}</>}
+                              {it.meta.latest.date && <> · {new Date(it.meta.latest.date).toLocaleString()}</>}
+                              {it.meta.latest.comment && <> — {shortComment(it.meta.latest.comment)}</>}
+                            </div>
+                          )}
+                          {it.meta.changesets.length > 1 && (
+                            <details class="ms-3 mt-1">
+                              <summary class="text-secondary" style="cursor: pointer;">View changesets</summary>
+                              <ul class="list-unstyled mb-0 mt-1">
+                                {it.meta.changesets.map((cs: ChangesetMeta) => (
+                                  <li>
+                                    <code>{cs.id}</code>
+                                    {cs.author && <> · {cs.author}</>}
+                                    {cs.comment && <> — {shortComment(cs.comment, 60)}</>}
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          )}
+                        </div>
+                      )}
                       {it.checksum && <div class="font-monospace text-secondary" title={it.checksum}>sha256: {it.checksum.slice(0, 16)}…</div>}
                       {it.zip_path && <div class="text-secondary"><i class="bi bi-file-earmark-zip me-1"></i>{it.zip_path}</div>}
                     </td>

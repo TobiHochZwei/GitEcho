@@ -109,23 +109,26 @@ test('settings — general', async ({ page }) => {
 
 test('settings — providers github', async ({ page }) => {
   await page.goto('/settings/providers');
-  // Page shows all three providers stacked. Take full-page once for the
-  // combined shot, then per-provider clips.
+  // The page shows one provider per tab. Capture the combined (GitHub-active)
+  // shot first, then activate each tab and clip its visible pane.
   await shoot(page, 'settings-providers');
-  // Per-provider via element screenshot (cards have headings we can locate).
-  for (const [name, heading] of [
-    ['settings-providers-github', 'GitHub'],
-    ['settings-providers-azuredevops', 'Azure DevOps'],
-    ['settings-providers-gitlab', 'GitLab'],
+  // Per-provider via element screenshot of the active tab pane.
+  for (const [name, key] of [
+    ['settings-providers-github', 'github'],
+    ['settings-providers-azuredevops', 'azureDevOps'],
+    ['settings-providers-gitlab', 'gitlab'],
   ] as const) {
-    const card = page.locator('.card').filter({ has: page.locator(`text=${heading}`) }).first();
-    if (await card.count()) {
-      await card.scrollIntoViewIfNeeded();
-      await settle(page);
-      await card.screenshot({ path: `docs/docs/assets/screenshots/${name}.png`, animations: 'disabled' });
-      // eslint-disable-next-line no-console
-      console.log(`  📸 docs/docs/assets/screenshots/${name}.png`);
-    }
+    const tab = page.locator(`#tab-${key}`);
+    if (!(await tab.count())) continue;
+    await tab.click();
+    const pane = page.locator(`#pane-${key}`);
+    await pane.waitFor({ state: 'visible' });
+    const card = pane.locator('.card').first();
+    await card.scrollIntoViewIfNeeded();
+    await settle(page);
+    await card.screenshot({ path: `docs/docs/assets/screenshots/${name}.png`, animations: 'disabled' });
+    // eslint-disable-next-line no-console
+    console.log(`  📸 docs/docs/assets/screenshots/${name}.png`);
   }
 });
 

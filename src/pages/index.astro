@@ -64,6 +64,22 @@ const modeLabel =
 
 const cronHuman = humanizeCron(config.cronSchedule);
 
+// Map a backup run status to a Bootstrap badge variant. Kept in sync with the
+// client-side `badgeVariant()` in the page script and `statusVariant()` on the
+// runs pages so `cancelled` reads as a distinct (grey) badge everywhere.
+function statusVariant(status: string): string {
+  switch (status) {
+    case 'success': return 'success';
+    case 'failed': return 'danger';
+    case 'running': return 'info';
+    case 'cancelled': return 'secondary';
+    case 'partial':
+    case 'partial_failure':
+    case 'unavailable': return 'warning';
+    default: return 'secondary';
+  }
+}
+
 function patBadge(days: number | null): { variant: string; label: string } {
   if (days === null) return { variant: 'secondary', label: 'No expiry set' };
   if (days < 0) return { variant: 'danger', label: `Expired ${-days}d ago` };
@@ -298,7 +314,7 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
                 <td class="font-monospace">#{r.id}</td>
                 <td>{new Date(r.started_at).toLocaleString()}</td>
                 <td>
-                  <span class={`badge text-bg-${r.status === 'success' ? 'success' : r.status === 'failed' ? 'danger' : r.status === 'running' ? 'info' : 'warning'}`}>
+                  <span class={`badge text-bg-${statusVariant(r.status)}`}>
                     {r.status}
                   </span>
                 </td>
@@ -376,7 +392,9 @@ const historyFailed = JSON.stringify(history.map((h) => h.failed));
     if (status === 'success') return 'success';
     if (status === 'failed') return 'danger';
     if (status === 'running') return 'info';
-    return 'warning';
+    if (status === 'cancelled') return 'secondary';
+    if (status === 'partial' || status === 'partial_failure' || status === 'unavailable') return 'warning';
+    return 'secondary';
   }
 
   // Rebuilds the Recent backup runs table from poll data. Uses textContent /

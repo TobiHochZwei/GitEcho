@@ -1,6 +1,20 @@
 # GitLab
 
-![Providers settings](../assets/screenshots/settings-providers.png)
+![Providers settings](../assets/screenshots/settings-providers-gitlab.png)
+
+## Creating the Token
+
+GitEcho authenticates to GitLab with a **Personal Access Token (PAT)**.
+
+1. Go to <https://gitlab.com/-/user_settings/personal_access_tokens> (self-hosted: `https://<your-host>/-/user_settings/personal_access_tokens`).
+2. Click **Add new token**, give it a name (e.g. `gitecho-backup`), and optionally an expiration date (GitLab allows no-expiry tokens).
+3. Select these scopes:
+    - **`read_api`** — list the projects the token is a member of
+    - **`read_repository`** — clone over HTTPS
+
+    No write scopes are needed.
+4. Click **Create personal access token** and copy the value (shown only once).
+5. Paste it into **Settings → Providers → GitLab** in GitEcho. For self-hosted instances, also set the **Host** field (see below). Then click **Test connection**.
 
 ## Required PAT Scopes
 

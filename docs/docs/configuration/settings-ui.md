@@ -8,10 +8,15 @@ A database-first view of every repository GitEcho backs up:
 
 ![Settings — Repositories](../assets/screenshots/settings-repos.png)
 
-- **Filter** repositories by name or provider
+- **Filter** the list with the provider buttons (All / GitHub / Azure DevOps / GitLab) and/or the free-text search box (matches owner, name, or URL). The two filters combine.
 - **Source badge**: `discovered` (found via auto-discovery) or `extra` (pinned in `repos.txt`)
 - **Add/remove** repository URLs
+- **Select & bulk-delete** — tick the checkbox on one or more rows (or the header checkbox to select every visible row) and use **Delete selection**. The trash icon at the end of each row deletes that single entry.
+- **Delete entries without backups** — removes every repository that has no *successful* backup yet (handy for clearing out repos that were discovered but never produced a usable backup).
 - Redundant `repos.txt` entries that are already in the DB are cleaned up automatically each cycle (configurable under Providers)
+
+!!! warning "Deleting is permanent"
+    Deleting a repository here removes its database entry **and its local backup files**, and adds its URL to the provider blacklist so auto-discovery won't surface it again. This cannot be undone. To keep a repo's backups but stop syncing it, open the repository detail page and use **Exclude from future backups** or **Archive** instead.
 
 Archived repositories live on a dedicated tab so they can be reviewed or unarchived later:
 

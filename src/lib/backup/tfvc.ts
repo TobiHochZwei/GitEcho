@@ -4,54 +4,43 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { getConfig } from '../config.js';
-import { getRepositoryByUrl } from '../database.js';
+import { getLatestSuccessfulRevisionByUrl, getRepositoryByUrl } from '../database.js';
 import { logger, redactSecrets } from '../logger.js';
+import { parseTfvcIdentifier, safeTfvcName } from '../tfvc-identifier.js';
 
-interface TfvcRef {
-  org: string;
-  project: string;
-  path: string;
+interface TfvcChangeset {
+  changesetId?: number;
+  author?: { displayName?: string };
+  comment?: string;
+  createdDate?: string;
 }
 
 interface TfvcChangesetResponse {
-  value?: Array<{ changesetId?: number }>;
+  value?: TfvcChangeset[];
 }
 
-function parseTfvcIdentifier(url: string): TfvcRef | undefined {
-  if (!url.startsWith('tfvc://')) return undefined;
-  try {
-    const u = new URL(url);
-    if (u.host.toLowerCase() !== 'dev.azure.com') return undefined;
-    const parts = u.pathname.split('/').filter(Boolean);
-    if (parts.length < 2) return undefined;
-    const org = decodeURIComponent(parts[0]);
-    const project = decodeURIComponent(parts[1]);
-    const p = u.searchParams.get('path');
-    if (!p) return undefined;
-    return { org, project, path: decodeURIComponent(p) };
-  } catch {
-    return undefined;
-  }
+/** Metadata for the latest changeset that touched a TFVC server path. */
+interface LatestChangeset {
+  id: string;
+  author?: string;
+  comment?: string;
+  createdDate?: string;
 }
 
 function computeChecksum(filePath: string): string {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex');
 }
 
-function safeName(input: string): string {
-  return input.replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'tfvc';
-}
-
 function authHeader(pat: string): string {
   return `Basic ${Buffer.from(`:${pat}`, 'utf-8').toString('base64')}`;
 }
 
-async function fetchLatestChangesetId(
+async function fetchLatestChangeset(
   org: string,
   project: string,
   serverPath: string,
   pat: string,
-): Promise<string | undefined> {
+): Promise<LatestChangeset | undefined> {
   try {
     const base = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}`;
     const url =
@@ -66,8 +55,15 @@ async function fetchLatestChangesetId(
     });
     if (!res.ok) return undefined;
     const body = (await res.json()) as TfvcChangesetResponse;
-    const id = body.value?.[0]?.changesetId;
-    return typeof id === 'number' ? String(id) : undefined;
+    const latest = body.value?.[0];
+    const id = latest?.changesetId;
+    if (typeof id !== 'number') return undefined;
+    return {
+      id: String(id),
+      author: latest?.author?.displayName,
+      comment: latest?.comment,
+      createdDate: latest?.createdDate,
+    };
   } catch {
     return undefined;
   }
@@ -91,6 +87,30 @@ export async function backupTfvcSnapshot(
   }
 
   const serverPath = repo.remotePath?.trim() || parsed.path;
+
+  // ── Phase 2: changeset-aware short-circuit ──────────────────────────
+  // Ask the server for the latest changeset that touched this path BEFORE
+  // downloading anything. When it matches the changeset recorded by the last
+  // successful backup, the content cannot have changed, so we skip the
+  // (potentially large) export entirely.
+  const latest = await fetchLatestChangeset(parsed.org, parsed.project, serverPath, cfg.pat);
+  const sourceRevision = latest?.id;
+  if (sourceRevision) {
+    const lastRevision = getLatestSuccessfulRevisionByUrl(repo.url);
+    const existingRepo = getRepositoryByUrl(repo.url);
+    if (lastRevision && lastRevision === sourceRevision && existingRepo?.checksum) {
+      logger.info(
+        `[tfvc] ${repo.url} unchanged since changeset ${sourceRevision} — skipping export`,
+      );
+      return {
+        success: true,
+        checksum: existingRepo.checksum,
+        sourceRevision,
+        artifactKind: 'snapshot',
+      };
+    }
+  }
+
   const tempDir = mkdtempSync(path.join(os.tmpdir(), 'gitecho-tfvc-'));
 
   try {
@@ -113,6 +133,7 @@ export async function backupTfvcSnapshot(
         success: false,
         unavailable,
         error: `TFVC export failed (${res.status}): ${redactSecrets(detail).slice(0, 400)}`,
+        sourceRevision,
       };
     }
 
@@ -124,16 +145,16 @@ export async function backupTfvcSnapshot(
         error:
           'TFVC export returned JSON instead of an archive. Check TFVC path permissions and server capabilities. ' +
           redactSecrets(detail).slice(0, 300),
+        sourceRevision,
       };
     }
 
     const buf = Buffer.from(await res.arrayBuffer());
-    const tmpZip = path.join(tempDir, `${safeName(repo.name)}.zip`);
+    const tmpZip = path.join(tempDir, `${safeTfvcName(repo.name)}.zip`);
     writeFileSync(tmpZip, buf);
     const checksum = computeChecksum(tmpZip);
 
     const existing = getRepositoryByUrl(repo.url);
-    const sourceRevision = await fetchLatestChangesetId(parsed.org, parsed.project, serverPath, cfg.pat);
     if (existing?.checksum === checksum) {
       return { success: true, checksum, sourceRevision, artifactKind: 'snapshot' };
     }
@@ -143,7 +164,7 @@ export async function backupTfvcSnapshot(
     mkdirSync(snapshotsDir, { recursive: true });
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const finalZip = path.join(snapshotsDir, `${safeName(repo.name)}_${timestamp}.zip`);
+    const finalZip = path.join(snapshotsDir, `${safeTfvcName(repo.name)}_${timestamp}.zip`);
     copyFileSync(tmpZip, finalZip);
 
     return {
@@ -156,7 +177,7 @@ export async function backupTfvcSnapshot(
   } catch (err) {
     const message = redactSecrets(err instanceof Error ? err.message : String(err));
     logger.warn(`[tfvc] Snapshot backup failed for ${repo.url}: ${message}`);
-    return { success: false, error: message };
+    return { success: false, error: message, sourceRevision };
   } finally {
     if (existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });

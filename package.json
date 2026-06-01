@@ -10,6 +10,7 @@
     "start": "node dist/server/entry.mjs",
     "worker": "node dist/worker/index.mjs",
     "worker:dev": "tsx --env-file-if-exists=.env.local worker/index.ts",
+    "test": "tsx --test tests/unit/*.test.ts",
     "seed:demo": "tsx --env-file=.env.demo scripts/seed-demo.ts",
     "screenshots": "playwright test --config=playwright.docs.config.ts",
     "docs:demo": "npm run seed:demo && npm run screenshots"

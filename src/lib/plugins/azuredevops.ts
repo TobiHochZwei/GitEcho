@@ -5,6 +5,12 @@ import { promisify } from 'node:util';
 import { logger, redactSecrets } from '../logger.js';
 
 import { getConfig } from '../config.js';
+import {
+  buildTfvcIdentifier,
+  parseTfvcIdentifier,
+  tfvcDisplayName,
+  type TfvcRef,
+} from '../tfvc-identifier.js';
 import { classifyGitError, rethrowAsUnavailableIfMatch } from './errors.js';
 import { execGitWithTrace, newTraceLogPath, pruneOldLogs } from './git-trace.js';
 import type {
@@ -14,6 +20,13 @@ import type {
 } from './interface.js';
 
 const execFileAsync = promisify(execFile);
+
+/** Parse a truthy environment flag (`true`/`1`, case-insensitive). */
+function parseBooleanEnv(value: string | undefined): boolean {
+  if (!value) return false;
+  const v = value.trim().toLowerCase();
+  return v === 'true' || v === '1' || v === 'yes';
+}
 
 // Matches https://dev.azure.com/{org}/{project}/_git/{repo}
 const AZURE_DEVOPS_URL_RE =
@@ -174,46 +187,7 @@ async function readReposTxt(): Promise<
   return entries;
 }
 
-interface TfvcRepoRef {
-  url: string;
-  org: string;
-  project: string;
-  path: string;
-}
-
-/**
- * Parse a canonical TFVC identifier used by GitEcho.
- * Format: tfvc://dev.azure.com/<org>/<project>?path=%24%2FProject%2FMain
- */
-function parseTfvcIdentifier(input: string): TfvcRepoRef | undefined {
-  if (!input.startsWith('tfvc://')) return undefined;
-  try {
-    const u = new URL(input);
-    if (u.host.toLowerCase() !== 'dev.azure.com') return undefined;
-    const parts = u.pathname.split('/').filter(Boolean);
-    if (parts.length < 2) return undefined;
-    const org = decodeURIComponent(parts[0]);
-    const project = decodeURIComponent(parts[1]);
-    const path = u.searchParams.get('path');
-    if (!path) return undefined;
-    return { url: input, org, project, path: decodeURIComponent(path) };
-  } catch {
-    return undefined;
-  }
-}
-
-function tfvcIdentifier(org: string, project: string, serverPath: string): string {
-  const normalized = serverPath.trim().replace(/\/+$/, '');
-  return `tfvc://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}?path=${encodeURIComponent(normalized)}`;
-}
-
-function tfvcDisplayName(serverPath: string, fallbackProject: string): string {
-  const parts = serverPath.split('/').filter(Boolean);
-  const last = parts.length > 0 ? parts[parts.length - 1] : '';
-  return last || fallbackProject;
-}
-
-async function readTfvcReposTxt(): Promise<TfvcRepoRef[]> {
+async function readTfvcReposTxt(): Promise<TfvcRef[]> {
   const config = getConfig();
   const reposFile = path.join(config.configDir, 'repos.txt');
 
@@ -224,7 +198,7 @@ async function readTfvcReposTxt(): Promise<TfvcRepoRef[]> {
     return [];
   }
 
-  const entries: TfvcRepoRef[] = [];
+  const entries: TfvcRef[] = [];
   for (const raw of content.split('\n')) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
@@ -464,16 +438,24 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
               });
             }
 
-            // TFVC discovery (phase 1 groundwork): when a project has no Git
-            // repositories but exposes TFVC content, register a TFVC root
-            // entry so the repo becomes visible to GitEcho.
-            if (repoList.length === 0) {
+            // TFVC discovery: register a TFVC root entry when a project
+            // exposes TFVC content so the repo becomes visible to GitEcho.
+            //
+            // By default this only runs for projects with NO Git repositories
+            // (the common "TFVC-only project" case) to keep discovery cheap —
+            // each check is an extra API call per project. Set
+            // AZUREDEVOPS_TFVC_DISCOVER_ALL=true to also probe projects that
+            // already contain Git repos (mixed Git + TFVC projects).
+            const probeTfvc =
+              repoList.length === 0 ||
+              parseBooleanEnv(process.env.AZUREDEVOPS_TFVC_DISCOVER_ALL);
+            if (probeTfvc) {
               const hasTfvc = await projectHasTfvcContent(orgUrl, project.name);
               if (hasTfvc) {
                 const orgName = orgUrl.replace('https://dev.azure.com/', '');
                 const serverPath = `$/` + project.name;
                 addRepo({
-                  url: tfvcIdentifier(orgName, project.name, serverPath),
+                  url: buildTfvcIdentifier(orgName, project.name, serverPath),
                   name: tfvcDisplayName(serverPath, project.name),
                   owner: `${orgName}/${project.name}`,
                   provider: 'azuredevops',

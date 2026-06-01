@@ -196,15 +196,18 @@ const MIGRATIONS: ReadonlyArray<(instance: DatabaseInstance) => void> = [
     );
   },
   // v2 -> v3: persist source control type for repositories (git / tfvc)
-  // plus provider-specific remote path metadata.
+  // plus provider-specific remote path metadata. Guarded so fresh installs
+  // (where `SCHEMA` already creates these columns) don't fail on a
+  // duplicate-column ALTER while upgraded installs still gain the columns.
   (instance) => {
-    instance.exec(`ALTER TABLE repositories ADD COLUMN vcs_type TEXT NOT NULL DEFAULT 'git'`);
-    instance.exec(`ALTER TABLE repositories ADD COLUMN remote_path TEXT`);
+    migrateAddColumnIfMissing(instance, 'repositories', 'vcs_type', "TEXT NOT NULL DEFAULT 'git'");
+    migrateAddColumnIfMissing(instance, 'repositories', 'remote_path', 'TEXT');
   },
   // v3 -> v4: backup item metadata for non-git artifacts (e.g. TFVC snapshots).
+  // Guarded for the same fresh-install reason as v2 -> v3.
   (instance) => {
-    instance.exec(`ALTER TABLE backup_items ADD COLUMN source_revision TEXT`);
-    instance.exec(`ALTER TABLE backup_items ADD COLUMN artifact_kind TEXT`);
+    migrateAddColumnIfMissing(instance, 'backup_items', 'source_revision', 'TEXT');
+    migrateAddColumnIfMissing(instance, 'backup_items', 'artifact_kind', 'TEXT');
   },
 ];
 
@@ -390,6 +393,29 @@ export function getRepositoryByUrl(url: string): Repository | undefined {
   return database.prepare('SELECT * FROM repositories WHERE url = ?').get(url) as
     | Repository
     | undefined;
+}
+
+/**
+ * Return the `source_revision` of the most recent successful backup item for
+ * the repository identified by `url`, or `undefined` when none exists. Used by
+ * TFVC backups to skip re-downloading a snapshot when the latest changeset is
+ * unchanged since the last success.
+ */
+export function getLatestSuccessfulRevisionByUrl(url: string): string | undefined {
+  const database = getDatabase();
+  const row = database
+    .prepare(
+      `SELECT bi.source_revision AS source_revision
+         FROM backup_items bi
+         JOIN repositories r ON r.id = bi.repository_id
+        WHERE r.url = ?
+          AND bi.status = 'success'
+          AND bi.source_revision IS NOT NULL
+        ORDER BY bi.id DESC
+        LIMIT 1`,
+    )
+    .get(url) as { source_revision: string | null } | undefined;
+  return row?.source_revision ?? undefined;
 }
 
 /** True when no repository row exists with the given URL (case-insensitive,

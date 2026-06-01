@@ -102,6 +102,44 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
               Restart the worker container for this to take effect.
             </div>
           </div>
+          <hr class="my-4" />
+          <h6 class="fw-semibold mb-1"><i class="bi bi-archive me-1"></i>Snapshot retention</h6>
+          <p class="form-text mt-0 mb-3">
+            Tiered (grandfather-father-son) pruning for timestamped snapshot
+            and ZIP artifacts: <strong>TFVC snapshots</strong>,
+            <strong>option3</strong> ZIP snapshots and <strong>option2</strong>
+            ZIP archives. option1 git working trees and the option3 git mirror
+            are never pruned. A snapshot is kept if it matches any tier below;
+            the most recent snapshot per repository is always kept. The monthly
+            and yearly tiers keep the newest snapshot in each of the most recent
+            N months / years that contain snapshots (not every calendar period
+            since today). Leave all three at <code>0</code> to disable retention
+            (keep everything — the default). Pruning runs at the end of every
+            backup cycle, including manual runs — even a single-repository
+            manual backup performs a global sweep across all repositories.
+          </p>
+          <div class="alert alert-warning py-2 small" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+            <strong>Reducing these values deletes more snapshots</strong> on the
+            next backup run. Deletions are permanent and cannot be undone.
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" for="retentionDailyDays">Daily — keep last N days</label>
+              <input type="number" min="0" step="1" id="retentionDailyDays" name="retentionDailyDays" class="form-control" value={cfg.retention.dailyDays} placeholder="14" />
+              <div class="form-text">All snapshots newer than this.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" for="retentionMonthlyCount">Monthly — keep N months</label>
+              <input type="number" min="0" step="1" id="retentionMonthlyCount" name="retentionMonthlyCount" class="form-control" value={cfg.retention.monthlyCount} placeholder="12" />
+              <div class="form-text">Newest snapshot per month.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" for="retentionYearlyCount">Yearly — keep N years</label>
+              <input type="number" min="0" step="1" id="retentionYearlyCount" name="retentionYearlyCount" class="form-control" value={cfg.retention.yearlyCount} placeholder="3" />
+              <div class="form-text">Newest snapshot per year.</div>
+            </div>
+          </div>
           <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save</button>
         </form>
       </Card>
@@ -214,6 +252,10 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
     const fd = new FormData(form);
     const runBackupOnStart = (document.getElementById('runBackupOnStart') as HTMLInputElement | null)?.checked ?? false;
     const cronEnabled = (document.getElementById('cronEnabled') as HTMLInputElement | null)?.checked ?? true;
+    const toInt = (v: FormDataEntryValue | null): number => {
+      const n = Number((v as string | null)?.trim());
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+    };
     const res = await fetch('/api/settings/general', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -223,6 +265,11 @@ const serverTimeNow = new Date().toLocaleString('en-GB', {
         cronTimezone: (fd.get('cronTimezone') as string | null)?.trim() || undefined,
         cronEnabled,
         runBackupOnStart,
+        retention: {
+          dailyDays: toInt(fd.get('retentionDailyDays')),
+          monthlyCount: toInt(fd.get('retentionMonthlyCount')),
+          yearlyCount: toInt(fd.get('retentionYearlyCount')),
+        },
       }),
     });
     const j = await res.json().catch(() => ({}));

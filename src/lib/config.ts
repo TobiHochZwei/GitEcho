@@ -42,6 +42,20 @@ export interface SmtpConfig {
   to: string;
 }
 
+/**
+ * Tiered (GFS) retention policy for snapshot/zip artifacts. A value of 0 for
+ * a tier disables that tier; all three at 0 means retention is disabled and
+ * nothing is ever pruned (the default, so upgrades never delete silently).
+ */
+export interface RetentionConfig {
+  /** Keep all snapshots newer than this many days. */
+  dailyDays: number;
+  /** Keep the newest snapshot per month for this many recent months. */
+  monthlyCount: number;
+  /** Keep the newest snapshot per year for this many recent years. */
+  yearlyCount: number;
+}
+
 export interface AppConfig {
   github?: ProviderConfig;
   azureDevOps?: ProviderConfig;
@@ -64,6 +78,8 @@ export interface AppConfig {
   smtp?: SmtpConfig;
   notifyOnSuccess: boolean;
   patExpiryWarnDays: number;
+  /** Tiered retention policy applied to snapshot/zip artifacts. */
+  retention: RetentionConfig;
   dataDir: string;
   configDir: string;
   backupsDir: string;
@@ -271,6 +287,17 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     );
   }
 
+  // Tiered retention. Each tier defaults to 0 (disabled) so existing
+  // instances never start deleting artifacts after an upgrade — retention
+  // is strictly opt-in via Settings or the BACKUP_RETENTION_* env vars.
+  const retention: RetentionConfig = {
+    dailyDays: settings.retention?.dailyDays ?? parseInteger(env.BACKUP_RETENTION_DAILY_DAYS, 0),
+    monthlyCount:
+      settings.retention?.monthlyCount ?? parseInteger(env.BACKUP_RETENTION_MONTHLY_COUNT, 0),
+    yearlyCount:
+      settings.retention?.yearlyCount ?? parseInteger(env.BACKUP_RETENTION_YEARLY_COUNT, 0),
+  };
+
   return {
     runBackupOnStart,
     github,
@@ -283,6 +310,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     smtp,
     notifyOnSuccess,
     patExpiryWarnDays,
+    retention,
     dataDir: env.DATA_DIR ?? '/data',
     configDir: env.CONFIG_DIR ?? '/config',
     backupsDir: env.BACKUPS_DIR ?? '/backups',

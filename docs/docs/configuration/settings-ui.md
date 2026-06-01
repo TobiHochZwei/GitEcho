@@ -70,6 +70,17 @@ Core backup settings:
 - **Backup mode** — switch between option1, option2, and option3
 - **Cron schedule** — edit the backup timing (requires worker restart to take effect)
 - **Run backup** — trigger an ad-hoc backup immediately (disabled while a backup is in progress)
+- **Snapshot retention** — tiered (grandfather-father-son) pruning for timestamped
+  artifacts: TFVC snapshots, option3 ZIP snapshots and option2 ZIP archives. Three
+  numeric tiers: *Daily* (keep all snapshots newer than N days), *Monthly* (keep the
+  newest snapshot in each of the most recent N months that contain snapshots), and
+  *Yearly* (keep the newest per year for N such years). A snapshot survives if it
+  matches **any** tier. The most recent snapshot per repository is always kept, and
+  option1 git working trees and the option3 git mirror are never touched. Leave all
+  three at `0` to disable pruning (keep everything — the default). Pruning runs at
+  the end of every backup cycle, including manual runs — even a single-repository
+  manual backup performs a global sweep across all repositories. **Reducing these
+  values deletes more snapshots on the next run and cannot be undone.**
 
 !!! info "File lock coordination"
     The web server and worker share a filesystem lock at `/data/.backup.lock`, so manual triggers and scheduled runs never overlap.

@@ -60,7 +60,7 @@ nav:
   - Web UI: web-ui.md
   - Security: security.md
   - Development: development.md
-  - TFVC Support Draft: development/tfvc-implementation.md
+  - TFVC Support: development/tfvc-implementation.md
   - Troubleshooting: troubleshooting.md
 
 markdown_extensions:

@@ -212,8 +212,9 @@ const MIGRATIONS: ReadonlyArray<(instance: DatabaseInstance) => void> = [
     migrateAddColumnIfMissing(instance, 'backup_items', 'artifact_kind', 'TEXT');
   },
   // v4 -> v5: persist repository visibility for list display and filtering.
+  // Guarded for the same fresh-install reason as v2 -> v3.
   (instance) => {
-    instance.exec(`ALTER TABLE repositories ADD COLUMN is_private INTEGER`);
+    migrateAddColumnIfMissing(instance, 'repositories', 'is_private', 'INTEGER');
   },
 ];
 

@@ -1,8 +1,9 @@
 # TFVC Support
 
-This document describes GitEcho's support for Azure DevOps TFVC sources. **Phase 1
-(latest-state snapshot backups) is implemented and shipped.** Phases 2–3 are the
-forward-looking roadmap.
+This document describes GitEcho's support for Azure DevOps TFVC sources. **Phases
+1–3 are implemented and shipped:** latest-state snapshot backups (Phase 1),
+changeset history metadata capture (Phase 2), and restore guidance plus
+TFVC-focused run details (Phase 3).
 
 ## Goal
 
@@ -59,25 +60,51 @@ backup is a **latest-state snapshot** and therefore does **not** capture:
 - Branch structure and branch relationships.
 - Changeset metadata beyond the latest revision id.
 
-It is suitable for recovering current source. Closing the fidelity gap is the
-purpose of Phase 2.
+It is suitable for recovering current source. Phase 2 narrows part of this gap
+by recording the changeset history *metadata* alongside each snapshot.
 
-### Phase 2 (planned): Changeset-Aware Incremental Mode
+### Phase 2 (shipped): Changeset Metadata Capture
 
-- Track last exported changeset.
-- Export only changed server paths since previous success.
-- Optional periodic full snapshot compaction.
+Phase 2 keeps the full-tree snapshot model but enriches each backup with the
+**changeset history that produced it**, so operators can see *what changed*
+without parsing the archive.
 
-> **Groundwork already in place:** each successful snapshot records the latest
+- For every real export, query the changesets between the previously recorded
+  `source_revision` and the current latest changeset for the server path.
+- Store that history as JSON on the backup item: the latest changeset (id,
+  author, comment, date) plus the list of changesets since the last successful
+  snapshot and their count.
+- Surface this metadata in the UI (see Phase 3 run detail).
+
+> **How it builds on Phase 1:** each successful snapshot records the latest
 > changeset id (`source_revision`). Before downloading, a backup compares the
 > current latest changeset against the last successful one and skips the export
-> when unchanged. Per-path incremental export is the remaining Phase 2 work.
+> when unchanged. Phase 2 adds the per-snapshot changeset *history* on top of
+> that single-revision marker.
 
-### Phase 3 (planned): Restore and UX Enhancements
+The full-tree download (`recursionLevel=Full`) and the `snapshot` artifact kind
+are retained — Phase 2 does **not** change how content is stored.
 
-- Restore guidance and helper operations.
-- TFVC-focused run details (changesets included, server path, workspace mapping).
-- Advanced include/exclude path filters.
+> **Not planned:** true per-path *incremental* export (downloading only the
+> changed paths into a separate `incremental` artifact) was considered but is
+> intentionally out of scope. It complicates restore semantics (a backup would
+> no longer be self-contained) for little benefit given the changeset-aware
+> skip already avoids redundant full exports. The `artifact_kind` column still
+> reserves `incremental` should this be revisited.
+
+### Phase 3 (shipped): Restore and UX Enhancements
+
+- **Restore guidance** — documented steps for extracting a TFVC snapshot and
+  returning it to a TFVC workspace (see the
+  [Azure DevOps provider page](../providers/azure-devops.md#restoring-a-tfvc-snapshot)).
+- **TFVC-focused run details** — the run detail page renders the Phase 2
+  changeset metadata: how many changesets the snapshot includes, the latest
+  changeset's author/comment/date, and a collapsible list of the included
+  changesets alongside the server path.
+
+> **Not planned:** advanced include/exclude path filters for TFVC exports. The
+> snapshot always captures the full server path; scoping is done by pinning a
+> narrower `$/Project/Path` in `repos.txt` instead.
 
 ## Discovery Design
 
@@ -130,7 +157,29 @@ Migration notes:
 TFVC metadata stored on each backup item:
 
 - `source_revision` (latest changeset id captured for the snapshot)
-- `artifact_kind` (`snapshot`; `incremental` reserved for Phase 2)
+- `artifact_kind` (`snapshot`; `incremental` reserved, see Phase 2 note)
+- `source_metadata` (nullable JSON): the changeset history for the snapshot,
+  captured in Phase 2. Shape:
+
+```json
+{
+  "latest": { "id": "47", "author": "Jane Dev", "comment": "Fix build", "date": "2026-05-31T10:12:00Z" },
+  "changesets": [
+    { "id": "47", "author": "Jane Dev", "comment": "Fix build", "date": "2026-05-31T10:12:00Z" },
+    { "id": "46", "author": "Sam Ops", "comment": "Bump deps", "date": "2026-05-30T18:03:00Z" }
+  ],
+  "count": 2
+}
+```
+
+  `changesets` lists the changesets between the previously recorded
+  `source_revision` and the current latest changeset (newest first); `count` is
+  their number. The column is `git`-agnostic and stays `NULL` for Git backups.
+
+Migration notes:
+
+- Append-only migration (add `source_metadata TEXT`).
+- Existing rows remain `NULL`; no backfill required.
 
 ## Engine Dispatch (as built)
 
@@ -181,7 +230,10 @@ is only written when content changes).
 
 ### Run Detail
 
-- Show TFVC artifact path and (when available) changeset.
+- Show the TFVC artifact path and latest changeset (`source_revision`) — shipped.
+- Render the `source_metadata` changeset history — how many changesets the
+  snapshot includes, the latest changeset's author/comment/date, and a
+  collapsible list of the included changesets — shipped.
 
 ## Filtering Behavior
 

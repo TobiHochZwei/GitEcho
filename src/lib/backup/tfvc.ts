@@ -27,6 +27,22 @@ interface LatestChangeset {
   createdDate?: string;
 }
 
+/** A single changeset entry stored in a snapshot's `source_metadata`. */
+interface ChangesetMeta {
+  id: string;
+  author?: string;
+  comment?: string;
+  date?: string;
+}
+
+/** Changeset history captured alongside a TFVC snapshot. Serialized to the
+ *  `backup_items.source_metadata` JSON column. */
+interface TfvcSourceMetadata {
+  latest: ChangesetMeta;
+  changesets: ChangesetMeta[];
+  count: number;
+}
+
 function computeChecksum(filePath: string): string {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex');
 }
@@ -69,10 +85,93 @@ async function fetchLatestChangeset(
   }
 }
 
+/**
+ * Fetch the changesets that touched a server path within an (inclusive)
+ * changeset id range. Used to record the history a snapshot captures since the
+ * previous successful backup. Best-effort: returns `[]` on any error so a
+ * metadata lookup never fails a backup. Capped via `$top` to avoid pulling an
+ * unbounded history.
+ */
+async function fetchChangesetsInRange(
+  org: string,
+  project: string,
+  serverPath: string,
+  fromId: number | undefined,
+  toId: number | undefined,
+  pat: string,
+): Promise<ChangesetMeta[]> {
+  try {
+    const base = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}`;
+    const params = new URLSearchParams();
+    params.set('searchCriteria.itemPath', serverPath);
+    if (fromId !== undefined) params.set('searchCriteria.fromId', String(fromId));
+    if (toId !== undefined) params.set('searchCriteria.toId', String(toId));
+    params.set('$top', '100');
+    params.set('api-version', '7.1-preview.1');
+
+    const res = await fetch(`${base}/_apis/tfvc/changesets?${params.toString()}`, {
+      headers: {
+        Authorization: authHeader(pat),
+        Accept: 'application/json',
+      },
+    });
+    if (!res.ok) return [];
+    const body = (await res.json()) as TfvcChangesetResponse;
+    return (body.value ?? [])
+      .filter((c) => typeof c.changesetId === 'number')
+      .map((c) => ({
+        id: String(c.changesetId),
+        author: c.author?.displayName,
+        comment: c.comment,
+        date: c.createdDate,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Build the changeset history metadata for a snapshot. On the first backup (no
+ * previous revision) or when the range lookup yields nothing, falls back to the
+ * single latest changeset.
+ */
+async function buildSourceMetadata(
+  org: string,
+  project: string,
+  serverPath: string,
+  latest: LatestChangeset,
+  lastRevision: string | undefined,
+  pat: string,
+): Promise<TfvcSourceMetadata> {
+  const latestMeta: ChangesetMeta = {
+    id: latest.id,
+    author: latest.author,
+    comment: latest.comment,
+    date: latest.createdDate,
+  };
+
+  let changesets: ChangesetMeta[] = [latestMeta];
+  const fromNum = lastRevision !== undefined ? Number(lastRevision) : NaN;
+  const toNum = Number(latest.id);
+  if (Number.isFinite(fromNum) && Number.isFinite(toNum) && toNum > fromNum) {
+    const range = await fetchChangesetsInRange(
+      org,
+      project,
+      serverPath,
+      fromNum + 1,
+      toNum,
+      pat,
+    );
+    if (range.length > 0) changesets = range;
+  }
+
+  return { latest: latestMeta, changesets, count: changesets.length };
+}
+
 export async function backupTfvcSnapshot(
   repo: { url: string; provider: string; owner: string; name: string; remotePath?: string },
   backupsDir: string,
-): Promise<{ success: boolean; error?: string; unavailable?: boolean; checksum?: string; zipPath?: string; sourceRevision?: string; artifactKind?: 'snapshot' }> {
+): Promise<{ success: boolean; error?: string; unavailable?: boolean; checksum?: string; zipPath?: string; sourceRevision?: string; artifactKind?: 'snapshot'; sourceMetadata?: string }> {
   const parsed = parseTfvcIdentifier(repo.url);
   if (!parsed) {
     return {
@@ -95,8 +194,8 @@ export async function backupTfvcSnapshot(
   // (potentially large) export entirely.
   const latest = await fetchLatestChangeset(parsed.org, parsed.project, serverPath, cfg.pat);
   const sourceRevision = latest?.id;
+  const lastRevision = sourceRevision ? getLatestSuccessfulRevisionByUrl(repo.url) : undefined;
   if (sourceRevision) {
-    const lastRevision = getLatestSuccessfulRevisionByUrl(repo.url);
     const existingRepo = getRepositoryByUrl(repo.url);
     if (lastRevision && lastRevision === sourceRevision && existingRepo?.checksum) {
       logger.info(
@@ -110,6 +209,21 @@ export async function backupTfvcSnapshot(
       };
     }
   }
+
+  // ── Phase 2: capture the changeset history this snapshot includes ────
+  // Best-effort; never fails the backup. Recorded on the backup item as JSON.
+  const sourceMetadata = latest
+    ? JSON.stringify(
+        await buildSourceMetadata(
+          parsed.org,
+          parsed.project,
+          serverPath,
+          latest,
+          lastRevision,
+          cfg.pat,
+        ),
+      )
+    : undefined;
 
   const tempDir = mkdtempSync(path.join(os.tmpdir(), 'gitecho-tfvc-'));
 
@@ -156,7 +270,7 @@ export async function backupTfvcSnapshot(
 
     const existing = getRepositoryByUrl(repo.url);
     if (existing?.checksum === checksum) {
-      return { success: true, checksum, sourceRevision, artifactKind: 'snapshot' };
+      return { success: true, checksum, sourceRevision, artifactKind: 'snapshot', sourceMetadata };
     }
 
     const repoDir = path.join(backupsDir, repo.provider, repo.owner, repo.name);
@@ -173,6 +287,7 @@ export async function backupTfvcSnapshot(
       zipPath: finalZip,
       sourceRevision,
       artifactKind: 'snapshot',
+      sourceMetadata,
     };
   } catch (err) {
     const message = redactSecrets(err instanceof Error ? err.message : String(err));

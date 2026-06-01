@@ -6,7 +6,6 @@
 
 import type { APIRoute } from 'astro';
 import {
-  deleteRepository,
   getRepository,
   getRepositoryWithHistory,
   REPOSITORY_NOTES_MAX_LENGTH,
@@ -14,14 +13,9 @@ import {
   setRepositorySkipBackup,
   updateRepositoryNotes,
 } from '../../../lib/database.js';
-import {
-  BackupBusyError,
-  deleteRepositoryFiles,
-  providerToSettingsKey,
-} from '../../../lib/archive.js';
+import { BackupBusyError } from '../../../lib/archive.js';
+import { deleteRepositoryCascade } from '../../../lib/repo-delete.js';
 import { loadConfig } from '../../../lib/config.js';
-import { addExcludedUrl } from '../../../lib/settings.js';
-import { logger } from '../../../lib/logger.js';
 
 interface PatchBody {
   notes?: string | null;
@@ -165,8 +159,9 @@ export const DELETE: APIRoute = async ({ params, request }) => {
   }
 
   const cfg = loadConfig();
+  let blacklisted = false;
   try {
-    deleteRepositoryFiles(repo, cfg.backupsDir, repo.archive_path);
+    ({ blacklisted } = deleteRepositoryCascade(repo, cfg));
   } catch (err) {
     if (err instanceof BackupBusyError) {
       return new Response(JSON.stringify({ error: err.message }), {
@@ -176,24 +171,6 @@ export const DELETE: APIRoute = async ({ params, request }) => {
     }
     throw err;
   }
-
-  deleteRepository(id);
-
-  let blacklisted = false;
-  const settingsKey = providerToSettingsKey(repo.provider);
-  if (settingsKey) {
-    try {
-      addExcludedUrl(settingsKey, repo.url);
-      blacklisted = true;
-    } catch (e) {
-      logger.warn(`[repo-delete] Failed to blacklist ${repo.url}: ${(e as Error).message}`);
-    }
-  }
-
-  logger.info(
-    `[repo-delete] Deleted repository #${id} ${repo.provider}/${repo.owner}/${repo.name} (${repo.url})` +
-      (blacklisted ? ' — added to provider blacklist' : ''),
-  );
 
   return new Response(
     JSON.stringify({ ok: true, blacklisted }),

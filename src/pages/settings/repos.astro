@@ -3,7 +3,7 @@ import Layout from '../../layouts/Layout.astro';
 import Card from '../../components/Card.astro';
 import { listRepoUrls } from '../../lib/repos-file.js';
 import { loadSettings } from '../../lib/settings.js';
-import { getRepositories } from '../../lib/database.js';
+import { getRepositories, getRepoIdsWithSuccessfulBackups } from '../../lib/database.js';
 
 let repos: { url: string; provider?: string }[] = [];
 let loadError: string | null = null;
@@ -61,6 +61,15 @@ try {
 const pinnedUrlSet = new Set(
   repos.map((r) => r.url.replace(/\.git$/, '').toLowerCase()),
 );
+
+// Repos that have at least one successful backup. Rows not in this set are
+// targets for the "Delete entries without backups" action.
+let reposWithBackups = new Set<number>();
+try {
+  reposWithBackups = getRepoIdsWithSuccessfulBackups();
+} catch {
+  reposWithBackups = new Set<number>();
+}
 
 const discoveredByProvider = {
   github: discoveredRepos.filter((r) => r.provider === 'github'),
@@ -140,13 +149,34 @@ function statusBadge(status: string | null): { cls: string; label: string } {
       </p>
     ) : (
       <>
-        <div class="d-flex gap-3 mb-3 flex-wrap">
-          <span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub: {discoveredByProvider.github.length}</span>
-          <span class="badge text-bg-primary"><i class="bi bi-microsoft me-1"></i>Azure DevOps: {discoveredByProvider.azuredevops.length}</span>
-          <span class="badge text-bg-warning"><i class="bi bi-gitlab me-1"></i>GitLab: {discoveredByProvider.gitlab.length}</span>
+        <div class="d-flex gap-2 mb-3 flex-wrap align-items-center" role="group" aria-label="Filter by provider">
+          <span class="text-secondary small me-1">Filter:</span>
+          <button type="button" class="btn btn-sm btn-primary repo-provider-filter active" data-provider="all" aria-pressed="true">
+            All <span class="badge text-bg-light text-dark ms-1">{discoveredRepos.length}</span>
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-dark repo-provider-filter" data-provider="github" aria-pressed="false">
+            <i class="bi bi-github me-1"></i>GitHub <span class="badge text-bg-secondary ms-1">{discoveredByProvider.github.length}</span>
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-primary repo-provider-filter" data-provider="azuredevops" aria-pressed="false">
+            <i class="bi bi-microsoft me-1"></i>Azure DevOps <span class="badge text-bg-secondary ms-1">{discoveredByProvider.azuredevops.length}</span>
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-warning repo-provider-filter" data-provider="gitlab" aria-pressed="false">
+            <i class="bi bi-gitlab me-1"></i>GitLab <span class="badge text-bg-secondary ms-1">{discoveredByProvider.gitlab.length}</span>
+          </button>
           {discoveredByProvider.other.length > 0 && (
-            <span class="badge text-bg-secondary">Other: {discoveredByProvider.other.length}</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary repo-provider-filter" data-provider="other" aria-pressed="false">
+              Other <span class="badge text-bg-secondary ms-1">{discoveredByProvider.other.length}</span>
+            </button>
           )}
+        </div>
+        <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+          <button type="button" class="btn btn-sm btn-danger" id="delete-selection-btn" disabled>
+            <i class="bi bi-trash me-1"></i>Delete selection
+            <span class="badge text-bg-light text-dark ms-1" id="selection-count">0</span>
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-danger" id="delete-no-backup-btn">
+            <i class="bi bi-trash me-1"></i>Delete entries without backups
+          </button>
         </div>
         <div class="mb-2">
           <input
@@ -160,12 +190,21 @@ function statusBadge(status: string | null): { cls: string; label: string } {
           <table class="table table-sm table-hover align-middle mb-0" id="discovered-table">
             <thead class="sticky-top bg-body">
               <tr>
+                <th style="width: 1%;">
+                  <input
+                    class="form-check-input"
+                    type="checkbox"
+                    id="select-all-repos"
+                    aria-label="Select all visible repositories"
+                  />
+                </th>
                 <th>Provider</th>
                 <th>Owner</th>
                 <th>Name</th>
                 <th>Status</th>
                 <th>Last sync</th>
                 <th>Source</th>
+                <th style="width: 1%;" class="text-end">Delete</th>
               </tr>
             </thead>
             <tbody>
@@ -176,8 +215,23 @@ function statusBadge(status: string | null): { cls: string; label: string } {
                 );
                 const filterKey = `${r.owner} ${r.name} ${r.url}`.toLowerCase();
                 const detailHref = `/settings/repos/${r.id}`;
+                const hasBackup = reposWithBackups.has(r.id);
                 return (
-                  <tr data-filter={filterKey}>
+                  <tr
+                    data-filter={filterKey}
+                    data-id={r.id}
+                    data-provider={r.provider}
+                    data-name={r.name}
+                    data-has-backup={hasBackup ? '1' : '0'}
+                  >
+                    <td>
+                      <input
+                        class="form-check-input repo-select"
+                        type="checkbox"
+                        value={r.id}
+                        aria-label={`Select ${r.owner}/${r.name}`}
+                      />
+                    </td>
                     <td>
                       {r.provider === 'github'
                         ? <span class="badge text-bg-dark"><i class="bi bi-github me-1"></i>GitHub</span>
@@ -210,6 +264,18 @@ function statusBadge(status: string | null): { cls: string; label: string } {
                       {pinned
                         ? <span class="badge text-bg-info"><i class="bi bi-pin-angle me-1"></i>extra</span>
                         : <span class="badge text-bg-light text-secondary border"><i class="bi bi-search me-1"></i>discovered</span>}
+                    </td>
+                    <td class="text-end">
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-danger repo-delete-btn"
+                        data-id={r.id}
+                        data-name={r.name}
+                        title={`Delete ${r.owner}/${r.name}`}
+                        aria-label={`Delete ${r.owner}/${r.name}`}
+                      >
+                        <i class="bi bi-trash"></i>
+                      </button>
                     </td>
                   </tr>
                 );
@@ -406,6 +472,33 @@ function statusBadge(status: string | null): { cls: string; label: string } {
   </div>
 </div>
 
+<!-- Bulk delete confirmation modal (backed-up repositories) -->
+<div class="modal fade" id="bulkDeleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-trash me-1"></i>Delete repositories</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">You are about to permanently delete <strong id="bulkDeleteCount">0</strong> repository(ies):</p>
+        <ul class="small mb-3" id="bulkDeleteList"></ul>
+        <div class="alert alert-danger py-2 small mb-0">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i>
+          This removes the database entries <strong>and their local backup files</strong>,
+          and blacklists each URL so auto-discovery won't surface it again. This cannot be undone.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="bulkDeleteConfirm">
+          <i class="bi bi-trash me-1"></i>Delete
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   import { toast } from '../../scripts/toasts.ts';
   import { Modal } from 'bootstrap';
@@ -413,13 +506,186 @@ function statusBadge(status: string | null): { cls: string; label: string } {
   // Client-side filter for the discovered repositories table.
   const discoveredFilter = document.getElementById('discovered-filter') as HTMLInputElement | null;
   const discoveredTable = document.getElementById('discovered-table') as HTMLTableElement | null;
-  discoveredFilter?.addEventListener('input', () => {
-    const q = discoveredFilter.value.trim().toLowerCase();
+
+  // Combined provider + text filtering for the backed-up repositories table.
+  let activeProvider = 'all';
+
+  function rowMatchesProvider(row: HTMLTableRowElement): boolean {
+    if (activeProvider === 'all') return true;
+    const provider = row.getAttribute('data-provider') ?? '';
+    if (activeProvider === 'other') {
+      return provider !== 'github' && provider !== 'azuredevops' && provider !== 'gitlab';
+    }
+    return provider === activeProvider;
+  }
+
+  function applyDiscoveredFilter(): void {
+    const q = (discoveredFilter?.value ?? '').trim().toLowerCase();
     discoveredTable?.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach((row) => {
       const key = row.getAttribute('data-filter') ?? '';
-      row.style.display = !q || key.includes(q) ? '' : 'none';
+      const visible = (!q || key.includes(q)) && rowMatchesProvider(row);
+      row.style.display = visible ? '' : 'none';
+      if (!visible) {
+        const cb = row.querySelector<HTMLInputElement>('.repo-select');
+        if (cb) cb.checked = false;
+      }
+    });
+    syncSelectAll();
+    updateSelectionCount();
+  }
+
+  discoveredFilter?.addEventListener('input', applyDiscoveredFilter);
+
+  document.querySelectorAll<HTMLButtonElement>('.repo-provider-filter').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activeProvider = btn.getAttribute('data-provider') ?? 'all';
+      document.querySelectorAll<HTMLButtonElement>('.repo-provider-filter').forEach((b) => {
+        const isActive = b === btn;
+        b.classList.toggle('active', isActive);
+        b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+      applyDiscoveredFilter();
     });
   });
+
+  // ─── Selection + bulk delete ────────────────────────────────────────
+  const selectAll = document.getElementById('select-all-repos') as HTMLInputElement | null;
+  const deleteSelectionBtn = document.getElementById('delete-selection-btn') as HTMLButtonElement | null;
+  const deleteNoBackupBtn = document.getElementById('delete-no-backup-btn') as HTMLButtonElement | null;
+  const selectionCountEl = document.getElementById('selection-count');
+
+  function visibleRows(): HTMLTableRowElement[] {
+    return Array.from(
+      discoveredTable?.querySelectorAll<HTMLTableRowElement>('tbody tr') ?? [],
+    ).filter((row) => row.style.display !== 'none');
+  }
+
+  function checkedRows(): HTMLTableRowElement[] {
+    return visibleRows().filter(
+      (row) => row.querySelector<HTMLInputElement>('.repo-select')?.checked,
+    );
+  }
+
+  function updateSelectionCount(): void {
+    const count = checkedRows().length;
+    if (selectionCountEl) selectionCountEl.textContent = String(count);
+    if (deleteSelectionBtn) deleteSelectionBtn.disabled = count === 0;
+  }
+
+  function syncSelectAll(): void {
+    if (!selectAll) return;
+    const rows = visibleRows();
+    const checked = rows.filter(
+      (row) => row.querySelector<HTMLInputElement>('.repo-select')?.checked,
+    );
+    selectAll.checked = rows.length > 0 && checked.length === rows.length;
+    selectAll.indeterminate = checked.length > 0 && checked.length < rows.length;
+  }
+
+  selectAll?.addEventListener('change', () => {
+    const check = selectAll.checked;
+    visibleRows().forEach((row) => {
+      const cb = row.querySelector<HTMLInputElement>('.repo-select');
+      if (cb) cb.checked = check;
+    });
+    updateSelectionCount();
+  });
+
+  discoveredTable?.querySelectorAll<HTMLInputElement>('.repo-select').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      syncSelectAll();
+      updateSelectionCount();
+    });
+  });
+
+  // Bulk delete modal wiring.
+  const bulkModalEl = document.getElementById('bulkDeleteModal');
+  const bulkListEl = document.getElementById('bulkDeleteList');
+  const bulkCountEl = document.getElementById('bulkDeleteCount');
+  const bulkConfirm = document.getElementById('bulkDeleteConfirm') as HTMLButtonElement | null;
+  const bulkModal = bulkModalEl ? new Modal(bulkModalEl) : null;
+  let pendingIds: number[] = [];
+
+  function openBulkDelete(rows: HTMLTableRowElement[]): void {
+    if (!bulkModal || !bulkListEl || !bulkCountEl) return;
+    pendingIds = rows
+      .map((row) => Number(row.getAttribute('data-id')))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    if (pendingIds.length === 0) {
+      toast('No repositories to delete', 'info');
+      return;
+    }
+    bulkListEl.replaceChildren();
+    rows.forEach((row) => {
+      const li = document.createElement('li');
+      li.textContent = row.getAttribute('data-name') ?? String(row.getAttribute('data-id'));
+      bulkListEl.appendChild(li);
+    });
+    bulkCountEl.textContent = String(pendingIds.length);
+    bulkModal.show();
+  }
+
+  deleteSelectionBtn?.addEventListener('click', () => {
+    openBulkDelete(checkedRows());
+  });
+
+  deleteNoBackupBtn?.addEventListener('click', () => {
+    const rows = Array.from(
+      discoveredTable?.querySelectorAll<HTMLTableRowElement>('tbody tr[data-has-backup="0"]') ?? [],
+    );
+    if (rows.length === 0) {
+      toast('All repositories have at least one successful backup', 'info');
+      return;
+    }
+    openBulkDelete(rows);
+  });
+
+  discoveredTable?.querySelectorAll<HTMLButtonElement>('.repo-delete-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('tr');
+      if (row) openBulkDelete([row as HTMLTableRowElement]);
+    });
+  });
+
+  bulkConfirm?.addEventListener('click', async () => {
+    if (pendingIds.length === 0) return;
+    bulkConfirm.disabled = true;
+    try {
+      const res = await fetch('/api/repos/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: pendingIds }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        deleted?: number[];
+        failed?: Array<{ id: number; error: string }>;
+      };
+      if (!res.ok) {
+        const partial = j.deleted?.length ? ` (${j.deleted.length} deleted before stopping)` : '';
+        toast((j.error ?? 'Bulk delete failed') + partial, 'danger');
+        if (j.deleted?.length) setTimeout(() => location.reload(), 800);
+        return;
+      }
+      const deleted = j.deleted?.length ?? 0;
+      const failed = j.failed?.length ?? 0;
+      toast(
+        failed > 0
+          ? `Deleted ${deleted}, ${failed} failed`
+          : `Deleted ${deleted} repository(ies)`,
+        failed > 0 ? 'warning' : 'success',
+      );
+      setTimeout(() => location.reload(), 500);
+    } catch {
+      toast('Bulk delete failed', 'danger');
+    } finally {
+      bulkConfirm.disabled = false;
+      bulkModal?.hide();
+    }
+  });
+
+  updateSelectionCount();
+  syncSelectAll();
 
   // Cleanup repos.txt flow: open modal → preview list → confirm → POST.
   const cleanupBtn = document.getElementById('cleanup-btn') as HTMLButtonElement | null;

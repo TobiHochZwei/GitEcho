@@ -52,6 +52,29 @@ These environment variables are accepted as a **fallback** when the Settings UI 
 | `BACKUP_MODE` | Backup strategy: `option1`, `option2`, or `option3` | `option1` |
 | `CRON_SCHEDULE` | Cron expression for backup timing | `0 2 * * *` (daily at 2 AM) |
 | `CRON_TZ` | IANA timezone the cron expression is interpreted in (e.g. `Europe/Berlin`). Falls back to `TZ` env, else `UTC`. | `UTC` |
+| `BACKUP_RETENTION_DAILY_DAYS` | Keep **all** snapshots newer than this many days. `0` disables this tier. | `0` (disabled) |
+| `BACKUP_RETENTION_MONTHLY_COUNT` | Keep the newest snapshot per calendar month for this many recent months. `0` disables this tier. | `0` (disabled) |
+| `BACKUP_RETENTION_YEARLY_COUNT` | Keep the newest snapshot per calendar year for this many recent years. `0` disables this tier. | `0` (disabled) |
+
+!!! info "Snapshot retention (GFS pruning)"
+    The `BACKUP_RETENTION_*` variables apply a tiered grandfather-father-son
+    policy to timestamped artifacts — TFVC snapshots (`snapshots/`), option3 ZIP
+    snapshots (`zips/`) and option2 ZIP archives. A snapshot is **kept** if it
+    matches any enabled tier; everything else is deleted at the end of each
+    backup cycle (including manual runs, which trigger a global sweep). The most
+    recent snapshot per repository is always kept. option1 git working trees and
+    the option3 git mirror (`clone/`) are never pruned.
+
+    The monthly/yearly tiers keep the newest snapshot in each of the most recent
+    N calendar months/years that actually contain snapshots — not every calendar
+    period counting back from today.
+
+    Retention is **opt-in**: with all three tiers at `0` (the default) nothing
+    is ever pruned, so upgrades never start deleting silently. Settings
+    configured in the Web UI (Settings → General) take precedence over these
+    environment variables. Reducing values deletes more on the next run and
+    cannot be undone.
+
 
 ## SMTP Fallbacks
 

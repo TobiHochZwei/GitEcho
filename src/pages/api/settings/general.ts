@@ -8,6 +8,11 @@ interface GeneralInput {
   cronEnabled?: boolean;
   runBackupOnStart?: boolean;
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
+  retention?: {
+    dailyDays?: unknown;
+    monthlyCount?: unknown;
+    yearlyCount?: unknown;
+  };
 }
 
 function isValidCron(expression: string): boolean {
@@ -66,6 +71,33 @@ export const PUT: APIRoute = async ({ request }) => {
     );
   }
 
+  // Retention: each tier must be a non-negative integer. Persist all three
+  // together so the policy is always internally consistent.
+  let retention: { dailyDays: number; monthlyCount: number; yearlyCount: number } | undefined;
+  if (body.retention !== undefined) {
+    const parseTier = (value: unknown, label: string): number | { error: string } => {
+      // Require a real number — don't coerce null/''/[] to 0, which would
+      // silently disable a tier for a malformed request.
+      if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+        return { error: `retention.${label} must be a non-negative integer` };
+      }
+      return value;
+    };
+    const dailyDays = parseTier(body.retention.dailyDays, 'dailyDays');
+    const monthlyCount = parseTier(body.retention.monthlyCount, 'monthlyCount');
+    const yearlyCount = parseTier(body.retention.yearlyCount, 'yearlyCount');
+    for (const t of [dailyDays, monthlyCount, yearlyCount]) {
+      if (typeof t === 'object') {
+        return new Response(JSON.stringify({ error: t.error }), { status: 400 });
+      }
+    }
+    retention = {
+      dailyDays: dailyDays as number,
+      monthlyCount: monthlyCount as number,
+      yearlyCount: yearlyCount as number,
+    };
+  }
+
   patchSettings({
     backupMode: body.backupMode,
     cronSchedule: body.cronSchedule,
@@ -73,6 +105,7 @@ export const PUT: APIRoute = async ({ request }) => {
     cronEnabled: typeof body.cronEnabled === 'boolean' ? body.cronEnabled : undefined,
     runBackupOnStart: typeof body.runBackupOnStart === 'boolean' ? body.runBackupOnStart : undefined,
     logLevel: body.logLevel,
+    ...(retention ? { retention } : {}),
   });
 
   // Cron-schedule / timezone changes still need a worker restart to pick up

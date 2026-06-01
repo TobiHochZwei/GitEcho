@@ -1,45 +1,79 @@
-# TFVC Support Draft
+# TFVC Support
 
-This document proposes a phased implementation to support Azure DevOps TFVC sources in GitEcho.
+This document describes GitEcho's support for Azure DevOps TFVC sources. **Phase 1
+(latest-state snapshot backups) is implemented and shipped.** Phases 2–3 are the
+forward-looking roadmap.
 
 ## Goal
 
-Add backup support for TFVC repositories (Team Foundation Version Control) while preserving existing Git behavior and data model compatibility.
+Add backup support for TFVC repositories (Team Foundation Version Control) while
+preserving existing Git behavior and data model compatibility.
 
-## Current State
+## Background
 
-GitEcho only discovers and backs up Git repositories from Azure DevOps.
+Before Phase 1, GitEcho only discovered and backed up Git repositories from
+Azure DevOps.
 
 - Discovery uses `az devops project list` and `az repos list`.
-- Repository URLs are expected in Git format (`.../_git/...`).
-- Backup engine executes `clone` and `pull` flows through provider plugins.
+- Git repository URLs are expected in Git format (`.../_git/...`).
+- The backup engine executes `clone` and `pull` flows through provider plugins.
 
-Result: TFVC-only projects are currently invisible to discovery and cannot be backed up.
+That left TFVC-only projects invisible to discovery and impossible to back up.
 
-## Proposed Scope
+> **Why snapshots, not `tf.exe`?** The official TFVC CLI (`tf.exe`) is
+> Windows/Visual Studio bound and requires a workspace mapped to a local
+> folder, which does not fit a containerized Linux backup tool. GitEcho instead
+> uses the Azure DevOps **REST API** (`_apis/tfvc/items` for content,
+> `_apis/tfvc/changesets` for revision tracking), which works headless with a
+> PAT. The trade-off: a snapshot captures current content only, not full
+> server-side history. See **Fidelity & Limitations** below.
 
-### Phase 1 (MVP): TFVC Snapshot Backups
+## Scope
 
-Support latest-state snapshot backups for TFVC paths.
+### Phase 1 (shipped): TFVC Snapshot Backups
 
-- Discover TFVC roots per project.
-- Export workspace contents for each root into backup storage.
-- Record backup metadata in existing run/item tables.
-- Mark entries as TFVC in repository metadata so UI and APIs can differentiate from Git repos.
+Latest-state snapshot backups for TFVC paths.
 
-Out of scope for Phase 1:
+- Discover TFVC roots per project (for projects with no Git repos; opt-in for
+  all projects via `AZUREDEVOPS_TFVC_DISCOVER_ALL`).
+- Export server-path contents for each root into backup storage as a `.zip`.
+- Record backup metadata in the existing run/item tables (`source_revision`,
+  `artifact_kind`).
+- Mark entries as TFVC in repository metadata (`vcs_type`) so UI and APIs can
+  differentiate from Git repos.
+- Skip re-export when the latest changeset is unchanged since the last success.
+
+Not included in Phase 1:
 
 - Full changeset history mirror.
 - Label-aware restore workflows.
 - Branch mapping semantics beyond root-path snapshots.
 
-### Phase 2: Changeset-Aware Incremental Mode
+## Fidelity & Limitations
+
+A Git backup in GitEcho is a full mirror (complete history). A TFVC Phase 1
+backup is a **latest-state snapshot** and therefore does **not** capture:
+
+- Changeset history (prior versions of files).
+- Labels (the TFVC equivalent of tags / named restore points).
+- Branch structure and branch relationships.
+- Changeset metadata beyond the latest revision id.
+
+It is suitable for recovering current source. Closing the fidelity gap is the
+purpose of Phase 2.
+
+### Phase 2 (planned): Changeset-Aware Incremental Mode
 
 - Track last exported changeset.
 - Export only changed server paths since previous success.
 - Optional periodic full snapshot compaction.
 
-### Phase 3: Restore and UX Enhancements
+> **Groundwork already in place:** each successful snapshot records the latest
+> changeset id (`source_revision`). Before downloading, a backup compares the
+> current latest changeset against the last successful one and skips the export
+> when unchanged. Per-path incremental export is the remaining Phase 2 work.
+
+### Phase 3 (planned): Restore and UX Enhancements
 
 - Restore guidance and helper operations.
 - TFVC-focused run details (changesets included, server path, workspace mapping).
@@ -47,30 +81,35 @@ Out of scope for Phase 1:
 
 ## Discovery Design
 
-### New Azure DevOps Discovery Strategy
+### Azure DevOps Discovery Strategy (as built)
 
-Keep existing Git discovery as-is and add TFVC discovery in parallel.
+Git discovery is unchanged; TFVC discovery runs alongside it.
 
-1. List projects using current Azure org target.
+1. List projects using the current Azure org target.
 2. For each project:
    - Keep `az repos list` for Git repos.
-   - Add TFVC root discovery using Azure DevOps API/CLI calls that enumerate TFVC roots and folders.
-3. Emit a normalized `RepositoryInfo`-like record for TFVC entries:
+   - Probe for TFVC content via `az devops invoke --area tfvc --resource items`
+     (`recursionLevel=None` on `$/<project>`). By default this runs only when
+     the project has **no Git repositories**; set
+     `AZUREDEVOPS_TFVC_DISCOVER_ALL=true` to probe every project.
+   - TFVC sources can also be pinned explicitly in `repos.txt`.
+3. Emit a normalized `RepositoryInfo` record for TFVC entries:
    - provider: `azuredevops`
    - owner: `<org>/<project>`
-   - name: normalized TFVC root name
-   - url: canonical TFVC identifier string (not `_git` URL)
-   - extra metadata: source type `tfvc`, server path, project
+   - name: last segment of the server path (falls back to project name)
+   - url: canonical TFVC identifier string (not a `_git` URL)
+   - `vcsType: 'tfvc'`, `remotePath: $/<project>/<path>`
 
 ### Canonical TFVC Identifier
 
-Introduce a canonical identifier for TFVC rows to preserve uniqueness and avoid collisions with Git URLs.
+TFVC rows use a canonical, GitEcho-internal identifier to preserve uniqueness
+and avoid collisions with Git URLs:
 
-Recommended format:
+`tfvc://dev.azure.com/<org>/<project>?path=$/<project>/<rootPath>`
 
-`tfvc://dev.azure.com/<org>/<project>?path=$/<teamProject>/<rootPath>`
-
-This identifier is internal to GitEcho and should not be treated as a clone URL.
+The server path is URL-encoded in the stored identifier. This identifier is
+internal to GitEcho and must not be treated as a clone URL. Parsing and building
+are centralized in `src/lib/tfvc-identifier.ts`.
 
 ## Data Model Changes
 
@@ -88,35 +127,42 @@ Migration notes:
 
 ### Backup Items
 
-Reuse existing status fields. Optional metadata additions for TFVC:
+TFVC metadata stored on each backup item:
 
-- `source_revision` (changeset id string/number)
-- `artifact_kind` (`snapshot`, `incremental`)
+- `source_revision` (latest changeset id captured for the snapshot)
+- `artifact_kind` (`snapshot`; `incremental` reserved for Phase 2)
 
-## Provider Interface Evolution
+## Engine Dispatch (as built)
 
-Current interface is Git-centric (`cloneRepository`, `pullRepository`).
+The backup engine branches on `vcsType` rather than introducing a generic
+plugin method. When a repository row has `vcsType === 'tfvc'`, the engine calls
+`backupTfvcSnapshot(...)` directly and records the result; otherwise it follows
+the existing Git clone/pull path. The provider plugin interface gained only two
+optional fields — `vcsType` and `remotePath` on `RepositoryInfo` — so existing
+Git providers are unaffected.
 
-Proposed direction:
+> A generic `backupRepository(repo, targetDir, options)` plugin method was
+> considered but not adopted for Phase 1; the single TFVC branch was simpler.
+> It remains an option if more non-Git source types are added later.
 
-1. Keep current methods for Git providers.
-2. Add an optional generic backup method:
-   - `backupRepository(repo, targetDir, options): Promise<BackupProviderResult>`
-3. Backup engine dispatch:
-   - If plugin has generic method, use it.
-   - Otherwise keep current Git path (clone/pull).
+## Backup Storage Layout (as built)
 
-This avoids breaking existing providers and allows TFVC-specific operations.
+TFVC snapshots are stored under the same per-repository tree as other artifacts:
 
-## Backup Storage Layout
+`<backupsDir>/azuredevops/<owner>/<name>/snapshots/<name>_<timestamp>.zip`
 
-For TFVC Phase 1, store snapshots under:
+where `<owner>` is `<org>/<project>`. There is no separate `tfvc/` path segment
+and no `latest.zip` pointer; the most recent snapshot is determined by
+timestamp. The web UI exposes these via the repository's **Snapshots** action.
 
-`/backups/azuredevops/<org>/<project>/tfvc/<normalized-root>/snapshots/<timestamp>.zip`
-
-Optional convenience pointer:
-
-- `latest.zip` symlink/copy
+TFVC snapshots are produced on every backup cycle regardless of the configured
+`BACKUP_MODE` (that setting only governs how Git repositories are stored). To
+keep snapshot storage bounded, these `snapshots/` directories are subject to the
+[tiered retention policy](../backup-modes.md#snapshot-retention) — the same GFS
+pruning applied to option2/option3 ZIP snapshots. Retention is opt-in and
+disabled by default. The single newest snapshot per repository is always kept
+(it is the one matching the repository's current checksum, since a new snapshot
+is only written when content changes).
 
 ## UI/API Impact
 
@@ -128,11 +174,10 @@ Optional convenience pointer:
 
 ### Settings and Discovery
 
-- Azure provider panel: add TFVC discovery toggle.
-- Show discovery totals split by type:
-  - Git discovered
-  - TFVC discovered
-  - filtered out
+- TFVC discovery for non-Git projects is on by default; the
+  `AZUREDEVOPS_TFVC_DISCOVER_ALL` env flag extends probing to all projects.
+- A per-type discovery breakdown in the UI (Git vs TFVC vs filtered) is not yet
+  implemented — planned.
 
 ### Run Detail
 
@@ -176,38 +221,45 @@ Mitigations:
 - Size/time telemetry in run logs.
 - Conservative defaults (snapshot-only first).
 
-## Implementation Plan
+## Implementation Status (Phase 1)
 
-1. Add schema migration for `vcs_type` and `remote_path`.
-2. Extend repository model and API serialization.
-3. Add TFVC discovery in Azure DevOps plugin.
-4. Add provider generic backup method and engine dispatch.
-5. Implement TFVC snapshot backup command flow.
-6. Add UI badges/details for TFVC entries.
-7. Add docs and troubleshooting guidance.
-8. Add tests and fixture coverage.
+- [x] Schema migration for `vcs_type` and `remote_path` (and
+      `source_revision` / `artifact_kind` on backup items).
+- [x] Repository model and API serialization extended.
+- [x] TFVC discovery in the Azure DevOps plugin.
+- [x] Engine dispatch on `vcsType` to the TFVC snapshot flow.
+- [x] TFVC snapshot backup implementation (`src/lib/backup/tfvc.ts`).
+- [x] UI badges/details for TFVC entries (repo list, run detail, settings).
+- [x] Docs and provider guidance.
+- [x] Unit and integration tests (`tests/unit/tfvc-*.test.ts`).
+
+Deferred to later phases: per-path incremental export, label/branch capture,
+restore tooling, per-type discovery breakdown in the UI.
 
 ## Test Plan
 
-### Unit
+### Unit (implemented)
 
-- TFVC identifier normalization.
-- Discovery parsing for TFVC roots.
-- Engine dispatch for git vs tfvc rows.
+- TFVC identifier parse / build / normalization round-trips.
+- `tfvcDisplayName` and `safeTfvcName` edge cases.
 
-### Integration
+### Integration (implemented)
 
-- Azure discovery returns mixed Git + TFVC projects.
-- Backup run with TFVC entries creates snapshot artifacts and updates statuses.
+- Snapshot download writes a `.zip` and records the changeset revision.
+- Checksum/changeset dedup skips re-export when unchanged.
+- `401/403/404` responses map to `unavailable`.
+- A JSON response instead of an archive is reported as a failure.
 
 ### Regression
 
 - Existing GitHub/GitLab/Azure Git flows unchanged.
 - Existing backup modes still pass with Git-only data.
 
-## Acceptance Criteria (Phase 1)
+Run the suite with `npm test`.
 
-- TFVC projects are discovered and listed in repository UI.
-- TFVC entries are backed up as snapshots on scheduled and manual runs.
-- Run detail shows success/failure and artifact path for TFVC entries.
-- No regression for existing Git backup behavior.
+## Acceptance Criteria (Phase 1) — met
+
+- [x] TFVC projects are discovered and listed in the repository UI.
+- [x] TFVC entries are backed up as snapshots on scheduled and manual runs.
+- [x] Run detail shows success/failure and artifact path for TFVC entries.
+- [x] No regression for existing Git backup behavior.

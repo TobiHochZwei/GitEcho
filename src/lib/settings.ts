@@ -96,6 +96,15 @@ export interface PersistedSettings {
   smtp?: SmtpSettings;
   notifyOnSuccess?: boolean;
   patExpiryWarnDays?: number;
+  /**
+   * Tiered (GFS) retention policy for snapshot/zip artifacts. Each tier at 0
+   * disables that tier; all three at 0 (or absent) means retention is off.
+   */
+  retention?: {
+    dailyDays: number;
+    monthlyCount: number;
+    yearlyCount: number;
+  };
   /** Logging verbosity surfaced in /logs UI. Overrides LOG_LEVEL env. */
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
   /** Web-UI authentication settings (username + password metadata). */

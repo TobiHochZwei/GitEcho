@@ -123,3 +123,21 @@ The strongest revision-safety mode. Maintains a bare git mirror **and** produces
 ## Changing Modes
 
 You can change the backup mode at any time via **Settings → General** or by updating the `BACKUP_MODE` environment variable. The next backup cycle will use the new mode. Existing backups from the previous mode are **not** deleted automatically.
+
+## Snapshot Retention
+
+Modes that accumulate timestamped artifacts — **option2** ZIP archives, **option3** ZIP snapshots (`zips/`) and **TFVC** snapshots (`snapshots/`) — can grow without bound. The optional retention policy applies tiered grandfather-father-son pruning so old snapshots are removed automatically:
+
+- **Daily** — keep all snapshots newer than N days
+- **Monthly** — keep the newest snapshot per calendar month, for the most recent N months that contain snapshots
+- **Yearly** — keep the newest snapshot per calendar year, for the most recent N years that contain snapshots
+
+A snapshot is kept if it matches **any** enabled tier. The most recent snapshot per repository is always kept (this is the snapshot matching the repository's current checksum, since a new snapshot is only written when content changes). Pruning runs at the end of every backup cycle, including manual runs — note that even a single-repository manual backup performs a **global** sweep across all repositories.
+
+Retention does **not** touch option1 git working trees or the option3 git mirror (`clone/`); only timestamped `.zip` snapshots are eligible.
+
+Retention is **opt-in** and disabled by default (all tiers `0` = keep everything). Configure it under **Settings → General** or via the `BACKUP_RETENTION_DAILY_DAYS`, `BACKUP_RETENTION_MONTHLY_COUNT`, and `BACKUP_RETENTION_YEARLY_COUNT` environment variables. See [Environment Variables](configuration/environment-variables.md) for details.
+
+!!! warning
+    Reducing retention values deletes more snapshots on the next run, and deletions are permanent.
+

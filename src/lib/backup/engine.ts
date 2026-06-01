@@ -20,6 +20,7 @@ import { backupOption1 } from './option1';
 import { backupOption2 } from './option2';
 import { backupOption3 } from './option3';
 import { backupTfvcSnapshot } from './tfvc';
+import { sweepRetention } from './retention';
 import { logger, redactSecrets } from '../logger.js';
 import { collectPatExpiryWarnings, type PatWarning } from '../smtp.js';
 import { getStorageUsage } from '../stats.js';
@@ -421,6 +422,16 @@ export async function runBackup(options?: { repositoryId?: number }): Promise<Ba
   logger.info(
     `[backup] ${cancelled ? 'Cancelled' : 'Completed'}: ${successCount}/${allRepos.length} succeeded, ${failedCount} failed, ${unavailableCount} unavailable, ${skippedCount} skipped`,
   );
+
+  // Apply the tiered retention policy to old snapshot/zip artifacts. This is
+  // best-effort and runs after every backup cycle (scheduled or manual), so a
+  // manual run doubles as an on-demand prune. A failure here must never fail
+  // the backup run itself.
+  try {
+    sweepRetention(config.backupsDir, config.retention);
+  } catch (e) {
+    logger.warn(`[backup] Retention sweep failed: ${(e as Error).message}`);
+  }
 
   // Refresh the persistent storage-usage cache so the dashboard shows
   // fresh totals without having to walk the filesystem on render. This

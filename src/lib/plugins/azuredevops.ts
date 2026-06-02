@@ -282,6 +282,69 @@ interface TfvcItem {
   gitObjectType?: string;
 }
 
+interface AzProjectCapabilities {
+  capabilities?: {
+    versioncontrol?: {
+      sourceControlType?: string;
+    };
+  };
+}
+
+/**
+ * Read a project's configured version-control type from its capabilities
+ * (`capabilities.versioncontrol.sourceControlType`, backed by the documented
+ * `SourceControlTypes` enum: `Git` | `Tfvc`).
+ *
+ * This is the primary, purpose-built signal for "does this project use TFVC":
+ * unlike a content probe it works even for an empty TFVC root and is returned
+ * directly by the project metadata. Returns `undefined` when the capability
+ * can't be read (logged as a warning so the operator can see why).
+ */
+async function getProjectSourceControlType(
+  orgUrl: string,
+  projectName: string,
+): Promise<'Git' | 'Tfvc' | undefined> {
+  try {
+    const json = await execCommand(
+      'az',
+      [
+        'devops',
+        'project',
+        'show',
+        '--organization',
+        orgUrl,
+        '--project',
+        projectName,
+        '--output',
+        'json',
+      ],
+      { env: azEnv() },
+    );
+
+    const parsed = JSON.parse(json) as AzProjectCapabilities;
+    const raw = parsed.capabilities?.versioncontrol?.sourceControlType;
+    if (!raw) {
+      logger.debug(
+        `[azuredevops] Project "${projectName}" exposed no sourceControlType capability`,
+      );
+      return undefined;
+    }
+    const norm = raw.toLowerCase();
+    if (norm === 'tfvc') return 'Tfvc';
+    if (norm === 'git') return 'Git';
+    logger.debug(
+      `[azuredevops] Project "${projectName}" reported unknown sourceControlType "${raw}"`,
+    );
+    return undefined;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logger.warn(
+      `[azuredevops] Failed to read source-control type for project "${projectName}": ${msg}`,
+    );
+    return undefined;
+  }
+}
+
 async function projectHasTfvcContent(orgUrl: string, projectName: string): Promise<boolean> {
   try {
     const json = await execCommand(
@@ -312,7 +375,21 @@ async function projectHasTfvcContent(orgUrl: string, projectName: string): Promi
     if ((parsed.count ?? 0) > 0) return true;
     const values = parsed.value ?? [];
     return values.some((v) => typeof v.path === 'string' && v.path.startsWith('$/'));
-  } catch {
+  } catch (error) {
+    // A genuine "no TFVC in this project" response from Azure DevOps comes back
+    // as TF400898/"does not exist". Anything else (auth, API version, network)
+    // is a real failure we must surface — otherwise the project is silently
+    // skipped and TFVC discovery looks broken with nothing in the log.
+    const msg = error instanceof Error ? error.message : String(error);
+    if (/TF400898|does not exist|VS403354|not found/i.test(msg)) {
+      logger.debug(
+        `[azuredevops] No TFVC content in project "${projectName}"`,
+      );
+    } else {
+      logger.warn(
+        `[azuredevops] TFVC probe failed for project "${projectName}": ${msg}`,
+      );
+    }
     return false;
   }
 }
@@ -398,6 +475,12 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
         const projectsData = JSON.parse(projectsJson) as { value?: AzProject[] };
         const projects = projectsData.value ?? [];
 
+        logger.info(
+          `[azuredevops] Listed ${projects.length} project(s) from ${orgUrl}`,
+        );
+
+        const discoverAllTfvc = parseBooleanEnv(process.env.AZUREDEVOPS_TFVC_DISCOVER_ALL);
+
         for (const project of projects) {
           try {
             const reposJson = await execCommand(
@@ -420,6 +503,10 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
               ? project.visibility.toLowerCase() !== 'public'
               : true;
 
+            logger.debug(
+              `[azuredevops] Project "${project.name}": found ${repoList.length} Git repo(s)`,
+            );
+
             for (const repo of repoList) {
               const repoUrl =
                 repo.webUrl ??
@@ -441,15 +528,36 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
             // TFVC discovery: register a TFVC root entry when a project
             // exposes TFVC content so the repo becomes visible to GitEcho.
             //
-            // By default this only runs for projects with NO Git repositories
-            // (the common "TFVC-only project" case) to keep discovery cheap —
-            // each check is an extra API call per project. Set
-            // AZUREDEVOPS_TFVC_DISCOVER_ALL=true to also probe projects that
-            // already contain Git repos (mixed Git + TFVC projects).
-            const probeTfvc =
-              repoList.length === 0 ||
-              parseBooleanEnv(process.env.AZUREDEVOPS_TFVC_DISCOVER_ALL);
+            // Detection uses two signals:
+            //   1. The project's `sourceControlType` capability — the
+            //      purpose-built "is this a TFVC project" flag. This catches
+            //      projects created for TFVC even when they ALSO contain Git
+            //      repos (the common mixed case), without extra probing.
+            //   2. A content probe (`tfvc/items`) — confirms there is actual
+            //      TFVC content worth snapshotting and only registers then.
+            //
+            // We always read the capability so the log shows what each project
+            // is. We then probe for content when the project looks like TFVC,
+            // has no Git repos at all, or the operator forced it via
+            // AZUREDEVOPS_TFVC_DISCOVER_ALL=true.
+            const sourceControlType = await getProjectSourceControlType(
+              orgUrl,
+              project.name,
+            );
+            logger.debug(
+              `[azuredevops] Project "${project.name}": sourceControlType=${sourceControlType ?? 'unknown'}`,
+            );
+
+            const probeReasons: string[] = [];
+            if (sourceControlType === 'Tfvc') probeReasons.push('capability=Tfvc');
+            if (repoList.length === 0) probeReasons.push('no Git repos');
+            if (discoverAllTfvc) probeReasons.push('AZUREDEVOPS_TFVC_DISCOVER_ALL=true');
+            const probeTfvc = probeReasons.length > 0;
+
             if (probeTfvc) {
+              logger.debug(
+                `[azuredevops] Probing TFVC content for "${project.name}" (${probeReasons.join(', ')})`,
+              );
               const hasTfvc = await projectHasTfvcContent(orgUrl, project.name);
               if (hasTfvc) {
                 const orgName = orgUrl.replace('https://dev.azure.com/', '');
@@ -463,7 +571,18 @@ export class AzureDevOpsPlugin implements ProviderPlugin {
                   remotePath: serverPath,
                   isPrivate: projectIsPrivate,
                 });
+                logger.info(
+                  `[azuredevops] Discovered TFVC root "${serverPath}" in project "${project.name}"`,
+                );
+              } else {
+                logger.debug(
+                  `[azuredevops] No TFVC content registered for "${project.name}" (probe returned nothing)`,
+                );
               }
+            } else {
+              logger.debug(
+                `[azuredevops] Skipping TFVC probe for "${project.name}" — sourceControlType=${sourceControlType ?? 'unknown'}, ${repoList.length} Git repo(s); set AZUREDEVOPS_TFVC_DISCOVER_ALL=true to probe every project`,
+              );
             }
           } catch (error) {
             logger.warn(

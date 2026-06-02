@@ -41,7 +41,13 @@ Azure DevOps PATs are scoped to one organization at creation time. To back up re
 
 The Azure DevOps provider discovers all repositories via `az devops project list` + `az repos list` and merges them with `repos.txt` entries.
 
-Both **Git** and **TFVC** (Team Foundation Version Control) sources are supported. During discovery, any project that has **no Git repositories** is probed for TFVC content and, if found, registered as a TFVC root. Projects that already contain Git repos are not probed for TFVC by default — set `AZUREDEVOPS_TFVC_DISCOVER_ALL=true` to probe every project (one extra API call per project) for mixed Git + TFVC projects. You can also pin a TFVC source explicitly in `repos.txt` (see below).
+Both **Git** and **TFVC** (Team Foundation Version Control) sources are supported. During discovery, GitEcho reads each project's `sourceControlType` capability (`Git` or `Tfvc`) and probes for TFVC content when **any** of these hold:
+
+- the project's source-control type is **Tfvc** (catches TFVC projects even when they also contain Git repos), or
+- the project has **no Git repositories** at all, or
+- `AZUREDEVOPS_TFVC_DISCOVER_ALL=true` is set (forces a probe of every project).
+
+When TFVC content is found, the project is registered as a TFVC root. You can also pin a TFVC source explicitly in `repos.txt` (see below). Set `LOG_LEVEL=debug` to see, per project, the detected source-control type, whether a probe ran, and why.
 
 Discovery can be disabled per provider via the **Auto-discover** checkbox on **Settings → Providers**.
 
@@ -53,7 +59,7 @@ TFVC sources are backed up as **latest-state snapshots**: GitEcho exports the cu
 
 Because the official TFVC CLI (`tf.exe`) is Windows/Visual Studio bound, GitEcho talks to the Azure DevOps **REST API** instead, which works headless in a Linux container with just a PAT:
 
-1. **Discover** — for each project, GitEcho checks for TFVC content via `_apis/tfvc/items`. Projects with no Git repos are probed automatically; set `AZUREDEVOPS_TFVC_DISCOVER_ALL=true` to probe every project (for mixed Git + TFVC projects).
+1. **Discover** — for each project, GitEcho reads the `sourceControlType` capability and checks for TFVC content via `_apis/tfvc/items`. A project is probed when its type is **Tfvc**, when it has no Git repos, or when `AZUREDEVOPS_TFVC_DISCOVER_ALL=true` forces a probe of every project.
 2. **Check the latest changeset** — it reads the most recent changeset id from `_apis/tfvc/changesets`. If it matches the last successful snapshot's recorded revision, the export is **skipped** (nothing changed).
 3. **Export** — otherwise it downloads the current contents of the server path through `_apis/tfvc/items` and writes them into a `.zip` under `<provider>/<owner>/<name>/snapshots/`.
 4. **Capture changeset metadata** — it records the changesets between the last successful snapshot's revision and the current latest changeset (id, author, comment, date) as JSON on the backup item, so you can see *what changed* without opening the archive.

@@ -115,11 +115,21 @@ Git discovery is unchanged; TFVC discovery runs alongside it.
 1. List projects using the current Azure org target.
 2. For each project:
    - Keep `az repos list` for Git repos.
+   - Read the project's `sourceControlType` capability via
+     `az devops project show` (the documented `SourceControlTypes` enum:
+     `Git` | `Tfvc`). This is the primary "is this a TFVC project" signal and
+     works even for an empty TFVC root.
    - Probe for TFVC content via `az devops invoke --area tfvc --resource items`
-     (`recursionLevel=None` on `$/<project>`). By default this runs only when
-     the project has **no Git repositories**; set
-     `AZUREDEVOPS_TFVC_DISCOVER_ALL=true` to probe every project.
+     (`recursionLevel=None` on `$/<project>`) when **any** of these hold: the
+     project's source-control type is `Tfvc`, the project has **no Git
+     repositories**, or `AZUREDEVOPS_TFVC_DISCOVER_ALL=true` is set. The content
+     probe confirms there is actual content worth snapshotting before a TFVC
+     root is registered.
    - TFVC sources can also be pinned explicitly in `repos.txt`.
+   - Every step is logged: project count, per-project Git repo count, detected
+     `sourceControlType`, whether a probe ran and why, and the outcome. Run with
+     `LOG_LEVEL=debug` to see the full trace; a failed probe is logged at
+     `warn` (so it is never silently swallowed).
 3. Emit a normalized `RepositoryInfo` record for TFVC entries:
    - provider: `azuredevops`
    - owner: `<org>/<project>`

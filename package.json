@@ -19,7 +19,7 @@
     "@astrojs/check": "^0.9.9",
     "@astrojs/node": "^10.1.4",
     "@popperjs/core": "^2.11.8",
-    "admin-lte": "^4.0.0",
+    "admin-lte": "^4.0.2",
     "archiver": "^8.0.0",
     "astro": "^6.4.8",
     "bcryptjs": "^3.0.3",

@@ -9,6 +9,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 0
     # Keep @types/node and typescript versions stable to match Node.js 22 LTS runtime
     # and maintain compatibility with Astro toolchain
     ignore:
@@ -26,6 +27,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 0
     # Keep Node.js at v22 (LTS until April 2027)
     ignore:
       - dependency-name: "node"

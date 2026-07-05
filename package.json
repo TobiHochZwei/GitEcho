@@ -21,7 +21,7 @@
     "@popperjs/core": "^2.11.8",
     "admin-lte": "^4.0.2",
     "archiver": "^8.0.0",
-    "astro": "^6.4.8",
+    "astro": "^7.0.2",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.11.1",
     "bootstrap": "^5.3.8",

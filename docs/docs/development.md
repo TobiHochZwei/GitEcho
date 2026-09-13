@@ -6,8 +6,8 @@ This guide covers local development setup, project structure, and contribution g
 
 | Tool | Version | Notes |
 |---|---|---|
-| Node.js | ≥ 22 | Match the Docker image (`node:22-bookworm-slim`) |
-| npm | ≥ 10 | Ships with Node 22 |
+| Node.js | 24.x (recommended) or 26.x | Node 24 LTS is the project default (`.nvmrc`) and Docker runtime (`node:24-bookworm-slim`). Node 26 is also supported, but is currently not LTS |
+| npm | ≥ 10 | Current Node 24 LTS releases ship with npm 11 |
 | `git` | any recent | Used at runtime for cloning/pulling repos |
 | GitHub CLI (`gh`) | ≥ 2.40 | Only needed for GitHub backups |
 | Azure CLI (`az`) + `azure-devops` ext. | ≥ 2.50 | Only needed for Azure DevOps backups |
@@ -24,11 +24,25 @@ Optional:
 ```bash
 git clone https://github.com/TobiHochZwei/GitEcho.git
 cd GitEcho
-npm install
+```
+
+If you use [nvm](https://github.com/nvm-sh/nvm), select the project default before installing dependencies:
+
+```bash
+nvm install
+nvm use
+```
+
+nvm is optional; an existing Node 24.x or 26.x installation also works. Install the locked dependencies and create local mount points:
+
+```bash
+npm ci
 
 # Create local mount points
 mkdir -p .dev/{config,data,backups}
 ```
+
+After switching Node major versions, run `npm ci` again so native modules such as `better-sqlite3` match the active runtime ABI. The project declares Node 24.x and 26.x support; npm normally warns for other versions without automatically switching your runtime.
 
 Create `.env.local` (loaded by `npm run dev` / `npm run worker:dev` via Node's `--env-file-if-exists` flag; ignored by git):
 

@@ -6,8 +6,8 @@ This document describes how to run, configure, and test GitEcho on a developer m
 
 | Tool | Version | Notes |
 |---|---|---|
-| Node.js | ≥ 22 | The Docker image uses `node:22-bookworm-slim`; match locally to keep `better-sqlite3` prebuilt binaries valid. |
-| npm | ≥ 10 | Ships with Node 22. |
+| Node.js | 24.x (recommended) or 26.x | Node 24 LTS is the project default (`.nvmrc`) and Docker runtime (`node:24-bookworm-slim`). Node 26 is also supported, but is currently not LTS. |
+| npm | ≥ 10 | Current Node 24 LTS releases ship with npm 11. |
 | `git` | any recent | Used at runtime to clone/pull repos. |
 | GitHub CLI (`gh`) | ≥ 2.40 | Required only if you backup GitHub repos. Install via `brew install gh` or [cli.github.com](https://cli.github.com). |
 | Azure CLI (`az`) with `azure-devops` extension | ≥ 2.50 | Required only if you backup Azure DevOps repos. Install with `brew install azure-cli` then `az extension add --name azure-devops`. |
@@ -25,10 +25,22 @@ Optional but recommended:
 ```bash
 git clone https://github.com/TobiHochZwei/GitEcho.git
 cd GitEcho
-npm install
 ```
 
-`npm install` will download the prebuilt `better-sqlite3` Node-v127 binary; no native toolchain needed.
+If you use [nvm](https://github.com/nvm-sh/nvm), select the project default before installing dependencies:
+
+```bash
+nvm install
+nvm use
+```
+
+nvm is optional; an existing Node 24.x or 26.x installation also works. Then install the locked dependencies:
+
+```bash
+npm ci
+```
+
+`better-sqlite3` downloads a prebuilt binary for the active Node version and platform when available; otherwise it needs a native build toolchain. After switching Node major versions, run `npm ci` again so native modules match the new runtime ABI. The project declares Node 24.x and 26.x support; npm normally warns for other versions without automatically switching your runtime.
 
 Create local mount points (matching the container layout):
 
@@ -454,5 +466,5 @@ docker compose up -d
 | `gh: command not found` on Test connection | Install GitHub CLI (`brew install gh`). The check exec's the `gh` binary directly. |
 | `glab: command not found` inside the container / during `glab auth status` | The Dockerfile installs `glab` via the official tarball release; rebuild the image after pulling changes. Locally the Astro server uses the REST API directly, so `glab` is optional for development. |
 | Cron schedule changed but worker still uses the old one | Cron is bound at worker startup; restart `npm run worker:dev` after editing the schedule. |
-| `better-sqlite3` build error | Use Node 22 (`nvm use 22`) so the prebuilt binary is selected; otherwise install `python3` + a C++ toolchain. |
+| `better-sqlite3` build error | Use Node 24 (`nvm install` then `nvm use` from the repository root), or supported Node 26, and run `npm ci` to install native modules for that runtime. If no prebuilt binary is available, install `python3` + a C++ toolchain. |
 | One repo fails to clone (`curl 56`, `early EOF`, `HTTP/2 CANCEL`) while others succeed | Enable **Verbose git trace (debug)** on `/settings/repos/<id>`, trigger a backup, then download the captured log from the **Debug traces** card. The log under `/data/debug-logs/repo-<id>/` contains full `GIT_TRACE` / `GIT_CURL_VERBOSE` / `GIT_TRACE_PACKET` output. Typical root causes: Docker bridge MTU on the host (try `com.docker.network.driver.mtu: 1400`), ISP/DPI resetting long single flows, container OOM during `index-pack` on large repos, or Azure DevOps `dev.azure.com` vs `*.visualstudio.com` routing. Logs are capped at 250 MiB each and the last 10 per repo are retained. |

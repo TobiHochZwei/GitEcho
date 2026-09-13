@@ -1,8 +1,11 @@
 {
   "name": "gitecho",
   "type": "module",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "GitHub/Azure DevOps repository backup tool",
+  "engines": {
+    "node": "24.x || 26.x"
+  },
   "scripts": {
     "dev": "node --env-file-if-exists=.env.local ./node_modules/astro/bin/astro.mjs dev",
     "build": "astro build && node build-worker.mjs",
@@ -16,33 +19,33 @@
     "docs:demo": "npm run seed:demo && npm run screenshots"
   },
   "dependencies": {
-    "@astrojs/check": "^0.9.9",
-    "@astrojs/node": "^11.0.2",
+    "@astrojs/check": "^0.9.10",
+    "@astrojs/node": "^11.1.5",
     "@popperjs/core": "^2.11.8",
-    "admin-lte": "^4.1.0",
+    "admin-lte": "^4.9.1",
     "archiver": "^8.0.0",
-    "astro": "^7.0.6",
+    "astro": "^7.3.2",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.11.1",
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
     "chart.js": "^4.5.1",
-    "cronstrue": "^3.24.0",
+    "cronstrue": "^3.26.0",
     "node-cron": "^4.6.0",
-    "nodemailer": "^9.0.3"
+    "nodemailer": "^9.1.1"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1",
+    "@playwright/test": "^1.63.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/bootstrap": "^5.2.11",
-    "@types/node": "^22.20.0",
+    "@types/node": "^24.13.4",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^8.0.1",
-    "tsx": "^4.23.0",
+    "tsx": "^4.23.13",
     "typescript": "^6.0.3"
   },
   "overrides": {
-    "yaml": "^2.8.3",
-    "esbuild": "^0.28.1"
+    "yaml": "^2.9.1",
+    "esbuild": "^0.28.2"
   }
 }

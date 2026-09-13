@@ -10,7 +10,7 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 0
-    # Keep @types/node and typescript versions stable to match Node.js 22 LTS runtime
+    # Keep @types/node and typescript versions stable to match the Node.js 24 LTS production runtime
     # and maintain compatibility with Astro toolchain
     ignore:
       - dependency-name: "@types/node"
@@ -28,7 +28,7 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 0
-    # Keep Node.js at v22 (LTS until April 2027)
+    # Keep the production image on Node.js 24 LTS
     ignore:
       - dependency-name: "node"
         update-types: ["version-update:semver-major"]

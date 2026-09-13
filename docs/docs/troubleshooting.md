@@ -207,9 +207,9 @@ remove redundant entries in one shot.
 
 ### `better-sqlite3` build error
 
-**Cause:** Node.js version mismatch. The prebuilt binary targets Node 22.
+**Cause:** Native modules installed under a different Node.js version may have an incompatible ABI, or a prebuilt binary may not be available for your platform.
 
-**Fix:** Use Node 22 (`nvm use 22`). If that doesn't help, install `python3` and a C++ toolchain for native compilation.
+**Fix:** Use the project's Node 24 LTS default (`nvm install` then `nvm use` from the repository root), or supported Node 26. Run `npm ci` after switching versions to reinstall native modules for the active runtime. If no prebuilt binary is available, install `python3` and a C++ toolchain for native compilation.
 
 ## Cron Schedule
 

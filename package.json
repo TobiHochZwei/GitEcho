@@ -1,7 +1,7 @@
 {
   "name": "gitecho",
   "type": "module",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "GitHub/Azure DevOps repository backup tool",
   "engines": {
     "node": "24.x || 26.x"

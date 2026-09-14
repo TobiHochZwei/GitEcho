@@ -1,7 +1,7 @@
 {
   "name": "gitecho",
   "type": "module",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "GitHub/Azure DevOps repository backup tool",
   "engines": {
     "node": "24.x || 26.x"
@@ -26,21 +26,20 @@
     "archiver": "^8.0.0",
     "astro": "^7.3.2",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.0.3",
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
     "chart.js": "^4.5.1",
     "cronstrue": "^3.26.0",
     "node-cron": "^4.6.0",
-    "nodemailer": "^9.1.1"
+    "nodemailer": "^10.0.9"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@types/better-sqlite3": "^7.6.13",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/bootstrap": "^5.2.11",
     "@types/node": "^24.13.4",
     "@types/node-cron": "^3.0.11",
-    "@types/nodemailer": "^8.0.1",
     "tsx": "^4.23.13",
     "typescript": "^6.0.3"
   },

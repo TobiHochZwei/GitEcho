@@ -205,11 +205,11 @@ remove redundant entries in one shot.
 
 **Fix:** For local development, `glab` is optional — the Astro dev server uses the GitLab REST API directly. Install via `brew install glab` if needed.
 
-### `better-sqlite3` build error
+### `better-sqlite3` native binary error
 
-**Cause:** Native modules installed under a different Node.js version may have an incompatible ABI, or a prebuilt binary may not be available for your platform.
+**Cause:** The bundled binary may be missing, or incompatible with the operating system, architecture or libc. Version 13 uses Node-API, so changing between supported Node 24 and 26 does not inherently require separate SQLite binaries.
 
-**Fix:** Use the project's Node 24 LTS default (`nvm install` then `nvm use` from the repository root), or supported Node 26. Run `npm ci` after switching versions to reinstall native modules for the active runtime. If no prebuilt binary is available, install `python3` and a C++ toolchain for native compilation.
+**Fix:** Use the project's Node 24 LTS default (`nvm install` then `nvm use` from the repository root), or supported Node 26, and run `npm ci`. Inspect the native loading error for platform/libc incompatibilities. If your platform requires compilation, follow the [upstream build instructions](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md); installing Python and a C++ toolchain alone does not make npm build the package automatically.
 
 ## Cron Schedule
 

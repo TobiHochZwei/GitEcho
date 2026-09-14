@@ -11,7 +11,7 @@ This guide covers local development setup, project structure, and contribution g
 | `git` | any recent | Used at runtime for cloning/pulling repos |
 | GitHub CLI (`gh`) | ≥ 2.40 | Only needed for GitHub backups |
 | Azure CLI (`az`) + `azure-devops` ext. | ≥ 2.50 | Only needed for Azure DevOps backups |
-| `openssl` | any | To generate `MASTER_KEY` |
+| `openssl` | 1.1.1 or newer | To generate `MASTER_KEY` and SMTP TLS test certificates (`req -addext`) |
 
 Optional:
 
@@ -42,7 +42,7 @@ npm ci
 mkdir -p .dev/{config,data,backups}
 ```
 
-After switching Node major versions, run `npm ci` again so native modules such as `better-sqlite3` match the active runtime ABI. The project declares Node 24.x and 26.x support; npm normally warns for other versions without automatically switching your runtime.
+`better-sqlite3` 13 uses Node-API and ships prebuilt binaries in its npm package for supported platforms, including macOS and Linux x64/arm64, rather than separate binaries for each Node major's V8 ABI. After switching runtimes, run `npm ci` to keep the full dependency installation consistent. If a binary cannot load, check platform/libc compatibility and the upstream source-build instructions; an automatic source build is not guaranteed. The project declares Node 24.x and 26.x support; npm normally warns for other versions without automatically switching your runtime.
 
 Create `.env.local` (loaded by `npm run dev` / `npm run worker:dev` via Node's `--env-file-if-exists` flag; ignored by git):
 
@@ -104,11 +104,27 @@ npm run worker    # background scheduler
 ## Static Checks
 
 ```bash
+npm test              # isolated unit and regression tests
 npx astro check       # TypeScript + Astro template diagnostics
 npm run build         # full production build (Astro + worker via esbuild)
 ```
 
-There are currently **no automated tests**. The `check` + `build` combo is the canonical "did I break anything" gate before opening a PR.
+Run all three checks before opening a PR. Database tests use temporary files, and SMTP tests use synthetic credentials and local test transports/servers rather than sending external email. The SMTP TLS fixtures also require `openssl`.
+
+### Linux and Container Validation
+
+The **Validate** workflow (`.github/workflows/validate.yml`) runs on main pushes, pull requests, and manual dispatch. Its native Linux AMD64/ARM64 matrix covers Node 24 and 26, tests, Astro diagnostics, builds, the dependency tree, and `npm audit`.
+
+The Node 24 jobs additionally build and smoke-test the production image on both architectures. To run the container check locally with Docker installed:
+
+```bash
+docker build -t gitecho:validation .
+bash scripts/test-container.sh gitecho:validation
+```
+
+The smoke test starts the actual entrypoint with a synthetic encryption key and disposable data. Networking and scheduled backups are disabled. It verifies the login page, unprivileged processes, native SQLite, and in-memory mail generation without reading your configuration or sending mail.
+
+This workflow never publishes an image. The separate **Build and publish Docker image** workflow publishes to GHCR on release-tag pushes or manual dispatch; only tag a commit after its validation passes.
 
 ## Project Layout
 

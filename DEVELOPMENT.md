@@ -12,7 +12,7 @@ This document describes how to run, configure, and test GitEcho on a developer m
 | GitHub CLI (`gh`) | ≥ 2.40 | Required only if you backup GitHub repos. Install via `brew install gh` or [cli.github.com](https://cli.github.com). |
 | Azure CLI (`az`) with `azure-devops` extension | ≥ 2.50 | Required only if you backup Azure DevOps repos. Install with `brew install azure-cli` then `az extension add --name azure-devops`. |
 | GitLab CLI (`glab`) | ≥ 1.40 | Optional — only used for the `glab auth status` boot probe inside the container and for ad-hoc debugging. Discovery goes through the REST API directly, so you can skip installing `glab` locally if you only run the Astro dev server. Install via `brew install glab` or from <https://gitlab.com/gitlab-org/cli>. |
-| `openssl` | any | Used to generate `MASTER_KEY`. |
+| `openssl` | 1.1.1 or newer | Used to generate `MASTER_KEY` and certificates for the isolated SMTP TLS tests (`req -addext`). |
 
 Optional but recommended:
 
@@ -40,7 +40,7 @@ nvm is optional; an existing Node 24.x or 26.x installation also works. Then ins
 npm ci
 ```
 
-`better-sqlite3` downloads a prebuilt binary for the active Node version and platform when available; otherwise it needs a native build toolchain. After switching Node major versions, run `npm ci` again so native modules match the new runtime ABI. The project declares Node 24.x and 26.x support; npm normally warns for other versions without automatically switching your runtime.
+`better-sqlite3` 13 uses Node-API and includes prebuilt binaries in its npm package for supported platforms, including macOS and Linux x64/arm64. These binaries are not tied to each Node major's V8 ABI. Run `npm ci` after switching runtimes to keep the full dependency installation consistent. If a native binary cannot load, check platform/libc compatibility and the package's source-build instructions; installation does not automatically guarantee a source build. The project declares Node 24.x and 26.x support; npm normally warns for other versions without automatically switching your runtime.
 
 Create local mount points (matching the container layout):
 
@@ -168,11 +168,27 @@ npm run worker    # runs the built worker
 ## 5. Static checks
 
 ```bash
+npm test              # isolated unit and regression tests
 npx astro check       # TypeScript + Astro template diagnostics
 npm run build         # full production build (Astro + worker via esbuild)
 ```
 
-There are currently **no automated tests**. The `check` + `build` combo is the canonical "did I break anything" gate before opening a PR.
+Run all three checks before opening a PR. Database tests use temporary files, and SMTP tests use synthetic credentials and local test transports/servers rather than sending external email.
+
+### Linux and container validation
+
+The **Validate** workflow (`.github/workflows/validate.yml`) runs on main pushes, pull requests, and manual dispatch. It checks Node 24 and 26 on native Linux AMD64 and ARM64 runners, including tests, Astro diagnostics, builds, the dependency tree, and `npm audit`.
+
+The Node 24 jobs also build the production Dockerfile and smoke-test the image on each architecture. With Docker installed, run the same container check locally:
+
+```bash
+docker build -t gitecho:validation .
+bash scripts/test-container.sh gitecho:validation
+```
+
+The smoke test uses a synthetic encryption key and disposable data, with networking and scheduled backups disabled. It checks the actual entrypoint, login page, unprivileged processes, native SQLite, and in-memory mail generation without using your configuration or sending mail.
+
+Validation never publishes an image. **Build and publish Docker image** is a separate workflow: pushing a release tag or manually dispatching that workflow publishes to GHCR. Release tags should point to a commit whose validation has passed.
 
 ## 6. Useful manual API checks
 
@@ -466,5 +482,5 @@ docker compose up -d
 | `gh: command not found` on Test connection | Install GitHub CLI (`brew install gh`). The check exec's the `gh` binary directly. |
 | `glab: command not found` inside the container / during `glab auth status` | The Dockerfile installs `glab` via the official tarball release; rebuild the image after pulling changes. Locally the Astro server uses the REST API directly, so `glab` is optional for development. |
 | Cron schedule changed but worker still uses the old one | Cron is bound at worker startup; restart `npm run worker:dev` after editing the schedule. |
-| `better-sqlite3` build error | Use Node 24 (`nvm install` then `nvm use` from the repository root), or supported Node 26, and run `npm ci` to install native modules for that runtime. If no prebuilt binary is available, install `python3` + a C++ toolchain. |
+| `better-sqlite3` native binary error | Use Node 24 (`nvm install` then `nvm use`), or supported Node 26, and run `npm ci`. Version 13 bundles Node-API binaries; check the reported OS/architecture/libc mismatch or missing binary before following the upstream source-build instructions. A toolchain alone does not make installation build from source automatically. |
 | One repo fails to clone (`curl 56`, `early EOF`, `HTTP/2 CANCEL`) while others succeed | Enable **Verbose git trace (debug)** on `/settings/repos/<id>`, trigger a backup, then download the captured log from the **Debug traces** card. The log under `/data/debug-logs/repo-<id>/` contains full `GIT_TRACE` / `GIT_CURL_VERBOSE` / `GIT_TRACE_PACKET` output. Typical root causes: Docker bridge MTU on the host (try `com.docker.network.driver.mtu: 1400`), ISP/DPI resetting long single flows, container OOM during `index-pack` on large repos, or Azure DevOps `dev.azure.com` vs `*.visualstudio.com` routing. Logs are capped at 250 MiB each and the last 10 per repo are retained. |

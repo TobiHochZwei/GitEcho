@@ -1,0 +1,103 @@
+name: Validate
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Node ${{ matrix.node }} / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: 24
+            runner: ubuntu-latest
+            arch: amd64
+            node-arch: x64
+            machine: x86_64
+          - node: 26
+            runner: ubuntu-latest
+            arch: amd64
+            node-arch: x64
+            machine: x86_64
+          - node: 24
+            runner: ubuntu-24.04-arm
+            arch: arm64
+            node-arch: arm64
+            machine: aarch64
+          - node: 26
+            runner: ubuntu-24.04-arm
+            arch: arm64
+            node-arch: arm64
+            machine: aarch64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0, Node 24
+        with:
+          node-version: ${{ matrix.node }}
+          architecture: ${{ matrix.node-arch }}
+          package-manager-cache: false
+
+      - name: Verify native runtime and test prerequisites
+        env:
+          EXPECTED_NODE: ${{ matrix.node }}
+          EXPECTED_NODE_ARCH: ${{ matrix.node-arch }}
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+        run: |
+          test "$(uname -m)" = "$EXPECTED_MACHINE"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          assert.equal(process.platform, 'linux');
+          assert.equal(process.versions.node.split('.')[0], process.env.EXPECTED_NODE);
+          assert.equal(process.arch, process.env.EXPECTED_NODE_ARCH);
+          console.log(`Validated Node ${process.version} on ${process.platform}/${process.arch}`);
+          NODE
+          npm --version
+          openssl version
+
+      - name: Clean install
+        run: npm ci
+
+      - name: Unit and integration tests
+        run: npm test
+
+      - name: Astro check
+        run: npm exec -- astro check
+
+      - name: Build server and worker
+        run: npm run build
+
+      - name: Validate dependency tree
+        run: npm ls --all
+
+      - name: Audit dependencies
+        run: npm audit
+
+      - name: Build local production image
+        if: matrix.node == 24
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          docker build --platform "linux/$EXPECTED_ARCH" --file Dockerfile \
+            --tag "gitecho-validation:$EXPECTED_ARCH" .
+
+      - name: Smoke test production container
+        if: matrix.node == 24
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: bash scripts/test-container.sh "gitecho-validation:$EXPECTED_ARCH"

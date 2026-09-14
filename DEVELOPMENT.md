@@ -7,7 +7,7 @@ This document describes how to run, configure, and test GitEcho on a developer m
 | Tool | Version | Notes |
 |---|---|---|
 | Node.js | 24.x (recommended) or 26.x | Node 24 LTS is the project default (`.nvmrc`) and Docker runtime (`node:24-bookworm-slim`). Node 26 is also supported, but is currently not LTS. |
-| npm | ≥ 10 | Current Node 24 LTS releases ship with npm 11. |
+| npm | ≥ 11.19.0 | Required for the package-specific install-script policy; current Node 24 LTS releases include a compatible npm version. |
 | `git` | any recent | Used at runtime to clone/pull repos. |
 | GitHub CLI (`gh`) | ≥ 2.40 | Required only if you backup GitHub repos. Install via `brew install gh` or [cli.github.com](https://cli.github.com). |
 | Azure CLI (`az`) with `azure-devops` extension | ≥ 2.50 | Required only if you backup Azure DevOps repos. Install with `brew install azure-cli` then `az extension add --name azure-devops`. |
@@ -41,6 +41,8 @@ npm ci
 ```
 
 `better-sqlite3` 13 uses Node-API and includes prebuilt binaries in its npm package for supported platforms, including macOS and Linux x64/arm64. These binaries are not tied to each Node major's V8 ABI. Run `npm ci` after switching runtimes to keep the full dependency installation consistent. If a native binary cannot load, check platform/libc compatibility and the package's source-build instructions; installation does not automatically guarantee a source build. The project declares Node 24.x and 26.x support; npm normally warns for other versions without automatically switching your runtime.
+
+The package-specific `allowScripts` policy disables only `better-sqlite3` install scripts. npm can otherwise infer an unnecessary `node-gyp rebuild` from the package's `binding.gyp`, even though version 13 ships ready-to-use binaries. This avoids requiring a compiler toolchain in the slim container; it does not disable other dependencies' scripts globally.
 
 Create local mount points (matching the container layout):
 

@@ -211,6 +211,8 @@ remove redundant entries in one shot.
 
 **Fix:** Use the project's Node 24 LTS default (`nvm install` then `nvm use` from the repository root), or supported Node 26, and run `npm ci`. Inspect the native loading error for platform/libc incompatibilities. If your platform requires compilation, follow the [upstream build instructions](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md); installing Python and a C++ toolchain alone does not make npm build the package automatically.
 
+If `npm ci` unexpectedly invokes `node-gyp rebuild` for this package, use npm 11.19.0 or newer and preserve the project's `allowScripts` denial for `better-sqlite3`. The bundled binaries do not require that implicit build. Do not bypass the policy with a blanket script-approval flag.
+
 ## Cron Schedule
 
 ### Schedule changed but worker still uses the old one

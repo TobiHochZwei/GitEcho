@@ -7,7 +7,7 @@ This guide covers local development setup, project structure, and contribution g
 | Tool | Version | Notes |
 |---|---|---|
 | Node.js | 24.x (recommended) or 26.x | Node 24 LTS is the project default (`.nvmrc`) and Docker runtime (`node:24-bookworm-slim`). Node 26 is also supported, but is currently not LTS |
-| npm | ≥ 10 | Current Node 24 LTS releases ship with npm 11 |
+| npm | ≥ 11.19.0 | Required for the package-specific install-script policy; current Node 24 LTS releases include a compatible npm version |
 | `git` | any recent | Used at runtime for cloning/pulling repos |
 | GitHub CLI (`gh`) | ≥ 2.40 | Only needed for GitHub backups |
 | Azure CLI (`az`) + `azure-devops` ext. | ≥ 2.50 | Only needed for Azure DevOps backups |
@@ -43,6 +43,8 @@ mkdir -p .dev/{config,data,backups}
 ```
 
 `better-sqlite3` 13 uses Node-API and ships prebuilt binaries in its npm package for supported platforms, including macOS and Linux x64/arm64, rather than separate binaries for each Node major's V8 ABI. After switching runtimes, run `npm ci` to keep the full dependency installation consistent. If a binary cannot load, check platform/libc compatibility and the upstream source-build instructions; an automatic source build is not guaranteed. The project declares Node 24.x and 26.x support; npm normally warns for other versions without automatically switching your runtime.
+
+The package-specific `allowScripts` policy disables only `better-sqlite3` install scripts. npm can otherwise infer an unnecessary `node-gyp rebuild` from the package's `binding.gyp`, even though version 13 includes ready-to-use binaries. This avoids a compiler requirement in the slim image without disabling other dependencies' scripts globally.
 
 Create `.env.local` (loaded by `npm run dev` / `npm run worker:dev` via Node's `--env-file-if-exists` flag; ignored by git):
 

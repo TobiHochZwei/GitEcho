@@ -20,26 +20,26 @@
     "docs:demo": "npm run seed:demo && npm run screenshots"
   },
   "dependencies": {
-    "@astrojs/check": "^0.9.10",
-    "@astrojs/node": "^11.1.6",
+    "@astrojs/check": "^0.9.11",
+    "@astrojs/node": "^11.1.9",
     "@popperjs/core": "^2.11.8",
-    "admin-lte": "^4.9.1",
+    "admin-lte": "^4.10.0",
     "archiver": "^8.0.0",
-    "astro": "^7.3.5",
+    "astro": "^7.4.1",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
     "bootstrap": "^5.3.8",
-    "bootstrap-icons": "^1.13.1",
+    "bootstrap-icons": "^1.13.2",
     "chart.js": "^4.5.1",
-    "cronstrue": "^3.27.0",
+    "cronstrue": "^3.36.0",
     "node-cron": "^4.6.0",
-    "nodemailer": "^10.0.13"
+    "nodemailer": "^10.1.7"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.64.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/bootstrap": "^5.2.11",
-    "@types/node": "^24.19.0",
+    "@types/node": "^24.19.2",
     "@types/node-cron": "^3.0.11",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3"

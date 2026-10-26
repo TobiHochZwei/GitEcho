@@ -21,7 +21,7 @@ import { getPluginRegistry } from './plugins/interface.js';
 import { cleanupReposFile } from './repos-file.js';
 import type { DiscoveryFilterSettings } from './settings.js';
 import { notifyNewRepositories } from './smtp.js';
-import { logger } from './logger.js';
+import { logger, redactSecrets } from './logger.js';
 
 export type DiscoveryProvider = 'github' | 'azureDevOps' | 'gitlab';
 
@@ -36,6 +36,8 @@ export interface DiscoveryProviderResult {
   newlyDiscovered: RepositoryInfo[];
   filteredOut: number;
   authenticated: boolean;
+  /** Set when authentication or listing failed, so callers can surface it. */
+  error?: string;
 }
 
 export interface DiscoveryResult {
@@ -146,6 +148,7 @@ export async function runDiscovery(opts: RunDiscoveryOptions = {}): Promise<Disc
       providerResult.authenticated = authOk;
       if (!authOk) {
         logger.error(`[discovery] Authentication failed for ${plugin.displayName}`);
+        providerResult.error = 'Authentication failed — check the PAT and that the provider CLI is available';
         result.providers.push(providerResult);
         continue;
       }
@@ -240,6 +243,7 @@ export async function runDiscovery(opts: RunDiscoveryOptions = {}): Promise<Disc
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`[discovery] Error discovering from ${plugin.displayName}: ${message}`);
+      providerResult.error = `Repository discovery failed: ${redactSecrets(message)}`;
     }
 
     result.providers.push(providerResult);

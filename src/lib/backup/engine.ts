@@ -124,6 +124,12 @@ export async function runBackup(options?: { repositoryId?: number }): Promise<Ba
     if (!provider.authenticated) {
       logger.error(`[backup] Skipping ${provider.provider}: authentication failed`);
     }
+    // A provider that could not authenticate or list repos must not let the
+    // run finish as a silent "success" with zero repos.
+    if (provider.error && singleRepoId === undefined) {
+      failures.push({ repo: String(provider.provider), error: provider.error });
+      failedCount++;
+    }
   }
 
   // Update run with total count
